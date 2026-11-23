@@ -2,7 +2,7 @@
   "id": "fu-hover-bars",
   "title": "Fabula Ultima - Hover Bars & Turn Menu",
   "description": "Exibe barras de PV/PM/PI ao passar o mouse nos tokens e um menu interativo estilo JRPG durante o turno ativo do personagem.",
-  "version": "2.8.0",
+  "version": "2.9.0",
   "compatibility": {
     "minimum": "12",
     "verified": "13"
