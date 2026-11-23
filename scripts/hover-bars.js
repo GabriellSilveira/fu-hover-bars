@@ -1,15 +1,6 @@
 class FUHoverBars {
-  static hudElement = null;
-  static activeToken = null;
-  static hideTimeout = null;
-
-  static init() {
-    const el = document.createElement("div");
-    el.id = "fu-hover-hud";
-    el.classList.add("fu-hover-hidden");
-    document.body.appendChild(el);
-    this.hudElement = el;
-  }
+  // Armazena os HUDs ativos indexados pelo ID do token
+  static activeHuds = new Map();
 
   static hasValidResources(token) {
     if (!token?.visible) return false;
@@ -17,44 +8,86 @@ class FUHoverBars {
     return Boolean(res && res.hp !== undefined);
   }
 
-  static clearHideTimer() {
-    if (this.hideTimeout) {
-      clearTimeout(this.hideTimeout);
-      this.hideTimeout = null;
+  static clearTimers(entry) {
+    if (entry.hideTimeout) {
+      clearTimeout(entry.hideTimeout);
+      entry.hideTimeout = null;
+    }
+    if (entry.cleanupTimeout) {
+      clearTimeout(entry.cleanupTimeout);
+      entry.cleanupTimeout = null;
     }
   }
 
   static show(token) {
-    if (!this.hudElement || !this.hasValidResources(token)) return;
+    if (!this.hasValidResources(token)) return;
 
-    this.clearHideTimer();
+    let entry = this.activeHuds.get(token.id);
 
-    this.activeToken = token;
-    this.render(token);
-    this.updatePosition();
-    this.hudElement.classList.remove("fu-hover-hidden");
-  }
-
-  static hide(token, immediate = false) {
-    if (token && this.activeToken?.id !== token.id) return;
-
-    this.clearHideTimer();
-
-    if (immediate) {
-      this.activeToken = null;
-      this.hudElement?.classList.add("fu-hover-hidden");
+    if (entry) {
+      // Se o HUD desse token ainda está na tela (ou dando fade), cancela o sumiço e renova
+      this.clearTimers(entry);
+      this.render(entry);
+      this.updatePosition(entry);
+      entry.element.classList.remove("fu-hover-hidden");
       return;
     }
 
-    this.hideTimeout = setTimeout(() => {
-      this.activeToken = null;
-      this.hudElement?.classList.add("fu-hover-hidden");
-      this.hideTimeout = null;
-    }, 2000);
+    // Cria um novo HUD independente para este token
+    const el = document.createElement("div");
+    el.classList.add("fu-hover-hud", "fu-hover-hidden");
+    document.body.appendChild(el);
+
+    entry = {
+      token,
+      element: el,
+      hideTimeout: null,
+      cleanupTimeout: null
+    };
+
+    this.activeHuds.set(token.id, entry);
+    this.render(entry);
+    this.updatePosition(entry);
+
+    // Ativa o fade-in no próximo frame
+    requestAnimationFrame(() => {
+      el.classList.remove("fu-hover-hidden");
+    });
   }
 
-  static render(token) {
-    const res = token.actor?.system?.resources;
+  static hide(tokenId, immediate = false) {
+    const entry = this.activeHuds.get(tokenId);
+    if (!entry) return;
+
+    this.clearTimers(entry);
+
+    if (immediate) {
+      entry.element.remove();
+      this.activeHuds.delete(tokenId);
+      return;
+    }
+
+    // Mantém os status visíveis por 3 segundos antes do fade-out
+    entry.hideTimeout = setTimeout(() => {
+      entry.element.classList.add("fu-hover-hidden");
+      entry.hideTimeout = null;
+
+      // Remove o elemento do HTML após o término da transição CSS (450ms)
+      entry.cleanupTimeout = setTimeout(() => {
+        entry.element.remove();
+        this.activeHuds.delete(tokenId);
+      }, 500);
+    }, 3000);
+  }
+
+  static clearAll() {
+    for (const [tokenId] of this.activeHuds) {
+      this.hide(tokenId, true);
+    }
+  }
+
+  static render(entry) {
+    const res = entry.token.actor?.system?.resources;
     if (!res) return;
 
     const hpVal = Number(res.hp?.value ?? 0);
@@ -70,9 +103,9 @@ class FUHoverBars {
 
     // Crise (<= 50%) e Perigo Crítico (< 20%)
     const isCrisis = hpVal <= Math.floor(hpMax / 2);
-    const isCritical = hpPct < 25;
+    const isCritical = hpPct < 20;
 
-    this.hudElement.innerHTML = `
+    entry.element.innerHTML = `
       <div class="fu-bar-row ${isCritical ? "fu-critical-shake" : ""}">
         <span class="fu-bar-label">PV</span>
         <div class="fu-bar-track">
@@ -97,38 +130,50 @@ class FUHoverBars {
     `;
   }
 
-  static updatePosition() {
-    if (!this.activeToken || !this.hudElement || !canvas?.stage) return;
+  static updatePosition(entry) {
+    if (!entry?.token || entry.token.destroyed || !canvas?.stage) return;
 
     const bottomCenterWorld = {
-      x: this.activeToken.x + this.activeToken.w / 2,
-      y: this.activeToken.y + this.activeToken.h
+      x: entry.token.x + entry.token.w / 2,
+      y: entry.token.y + entry.token.h
     };
     const screenPos = canvas.stage.worldTransform.apply(bottomCenterWorld);
 
-    this.hudElement.style.left = `${screenPos.x}px`;
-    this.hudElement.style.top = `${screenPos.y + 8}px`;
+    entry.element.style.left = `${screenPos.x}px`;
+    entry.element.style.top = `${screenPos.y + 8}px`;
+  }
+
+  static updateAllPositions() {
+    for (const entry of this.activeHuds.values()) {
+      this.updatePosition(entry);
+    }
   }
 }
 
-Hooks.once("ready", () => FUHoverBars.init());
-
 Hooks.on("hoverToken", (token, hovered) => {
   if (hovered) FUHoverBars.show(token);
-  else FUHoverBars.hide(token);
+  else FUHoverBars.hide(token.id);
 });
 
-Hooks.on("canvasPan", () => FUHoverBars.updatePosition());
+Hooks.on("canvasPan", () => FUHoverBars.updateAllPositions());
+
 Hooks.on("refreshToken", (token) => {
-  if (FUHoverBars.activeToken?.id === token.id) FUHoverBars.updatePosition();
+  const entry = FUHoverBars.activeHuds.get(token.id);
+  if (entry) FUHoverBars.updatePosition(entry);
 });
 
 Hooks.on("updateActor", (actor) => {
-  if (FUHoverBars.activeToken?.actor?.id === actor.id) {
-    FUHoverBars.render(FUHoverBars.activeToken);
+  for (const entry of FUHoverBars.activeHuds.values()) {
+    if (entry.token.actor?.id === actor.id) {
+      FUHoverBars.render(entry);
+    }
   }
 });
 
 Hooks.on("deleteToken", (tokenDoc) => {
-  if (FUHoverBars.activeToken?.id === tokenDoc.id) FUHoverBars.hide(null, true);
+  FUHoverBars.hide(tokenDoc.id, true);
+});
+
+Hooks.on("canvasTearDown", () => {
+  FUHoverBars.clearAll();
 });
