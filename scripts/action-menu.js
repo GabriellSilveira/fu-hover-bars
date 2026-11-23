@@ -119,6 +119,24 @@ class FUActionMenu {
     }
   }
 
+  /**
+   * Resolve o combatente ativo tanto via Foundry padrão quanto via flag do projectfu
+   */
+  static getActiveCombatant(combat) {
+    if (!combat?.started) return null;
+
+    const fuCombatantId =
+      combat.flags?.projectfu?.CombatantId ??
+      (typeof combat.getFlag === "function" ? combat.getFlag("projectfu", "CombatantId") : null);
+
+    if (fuCombatantId) {
+      const flagged = combat.combatants?.get(fuCombatantId);
+      if (flagged) return flagged;
+    }
+
+    return combat.combatant ?? null;
+  }
+
   static canDisplayForToken(token) {
     if (!this.isEnabled()) return false;
     if (!token?.visible || !token.actor) return false;
@@ -127,13 +145,16 @@ class FUActionMenu {
     if (!isOwner) return false;
 
     const combat = game.combat;
-    if (!combat?.started || !combat.combatant) return false;
+    const active = this.getActiveCombatant(combat);
+    if (!active) return false;
 
-    const active = combat.combatant;
-    const matchesToken = active.token?.id && active.token.id === token.id;
-    const matchesActor = !active.token?.id && active.actor?.id && active.actor.id === token.actor.id;
+    const activeTokenId = active.tokenId || active.token?.id;
+    const activeActorId = active.actorId || active.actor?.id;
 
-    return Boolean(matchesToken || matchesActor);
+    const matchesToken = Boolean(activeTokenId && activeTokenId === token.id);
+    const matchesActor = Boolean(!activeTokenId && activeActorId && activeActorId === token.actor.id);
+
+    return matchesToken || matchesActor;
   }
 
   static clearTimers(entry) {
@@ -257,280 +278,23 @@ class FUActionMenu {
    * Resolve o ícone de dano elemental/físico para armas e feitiços de dano
    */
   static resolveItemDamageIcon(item) {
-    const sys = item.system ?? {};
+    try {
+      const sys = item?.system;
+      if (!sys) return null;
 
-    if (item.type === "weapon") {
-      if (sys.hasDamage === false) return null;
-      const rawType = String(sys.damageType?.value ?? sys.damageType ?? "physical").toLowerCase();
-      return this.DAMAGE_TYPE_ICONS[rawType] ?? null;
-    }
-
-    if (item.type === "spell") {
-      const impDmg = sys.impdamage;
-      const dmg = sys.damage;
-
-      const hasDamage = Boolean(
-        impDmg?.hasDamage === true ||
-          dmg?.hasDamage === true ||
-          (typeof impDmg?.value === "number" && impDmg.value > 0) ||
-          (typeof impDmg?.value === "string" && impDmg.value.trim() !== "" && impDmg.value.trim() !== "0") ||
-          (typeof dmg?.value === "number" && dmg.value > 0) ||
-          (typeof dmg?.value === "string" && dmg.value.trim() !== "" && dmg.value.trim() !== "0")
-      );
-
-      if (!hasDamage) return null;
-
-      const rawType = String(
-        impDmg?.type?.value ??
-          impDmg?.type ??
-          dmg?.type?.value ??
-          dmg?.type ??
-          sys.damageType?.value ??
-          sys.damageType ??
-          ""
-      ).toLowerCase();
-
-      return this.DAMAGE_TYPE_ICONS[rawType] ?? null;
-    }
-
-    return null;
-  }
-
-  static buildMenuData(actor) {
-    const equipped = actor.system?.equipped ?? {};
-
-    // 1. ATAQUE
-    const weapons = actor.items
-      .filter((i) => i.type === "weapon")
-      .map((item) => {
-        let badge = "";
-        if (equipped.mainHand === item.id && equipped.offHand === item.id) badge = "2 Mãos";
-        else if (equipped.mainHand === item.id) badge = "Principal";
-        else if (equipped.offHand === item.id) badge = "Secundária";
-
-        return {
-          id: item.id,
-          name: item.name,
-          img: item.img,
-          badge,
-          damageInfo: this.resolveItemDamageIcon(item),
-          kind: "item"
-        };
-      });
-
-    // 2. FEITIÇOS
-    const spells = actor.items
-      .filter((i) => i.type === "spell")
-      .map((item) => {
-        const amt = item.system?.cost?.amount;
-        const perTarget = item.system?.cost?.perTarget ? " × A" : "";
-        const badge = amt ? `${amt} PM${perTarget}` : "";
-        return {
-          id: item.id,
-          name: item.name,
-          img: item.img,
-          badge,
-          damageInfo: this.resolveItemDamageIcon(item),
-          kind: "item"
-        };
-      });
-
-    // 3. AÇÕES
-    const actions = this.COMBAT_ACTIONS.map((act) => ({
-      id: act.id,
-      name: act.label,
-      faIcon: act.icon,
-      kind: "sheetAction",
-      actionName: act.action,
-      actionType: act.type
-    }));
-
-    // 4. CLASSES -> Habilidades de cada classe
-    const classItems = actor.items.filter((i) => i.type === "class");
-    const skillItems = actor.items.filter((i) => i.type === "skill");
-
-    const classGroups = classItems.map((cls) => {
-      const fuid = String(cls.system?.fuid ?? "").toLowerCase();
-      const clsNameNorm = cls.name.trim().toLowerCase();
-
-      const matchingSkills = skillItems
-        .filter((sk) => {
-          const skClassVal = String(sk.system?.class?.value ?? "").toLowerCase();
-          return (fuid && skClassVal === fuid) || (clsNameNorm && skClassVal === clsNameNorm);
-        })
-        .map((sk) => {
-          const rawAmt = String(sk.system?.cost?.amount ?? "").trim();
-          const resLabel = sk.system?.cost?.resource === "hp" ? "PV" : "PM";
-          const badge = rawAmt && rawAmt !== "0" && !rawAmt.includes("$") ? `${rawAmt} ${resLabel}` : "";
-          return {
-            id: sk.id,
-            name: sk.name,
-            img: sk.img,
-            badge,
-            kind: "item"
-          };
-        });
-
-      return {
-        id: `class-${cls.id}`,
-        itemId: cls.id,
-        name: cls.name,
-        img: cls.img,
-        items: matchingSkills
-      };
-    });
-
-    const assignedSkillIds = new Set(classGroups.flatMap((g) => g.items.map((i) => i.id)));
-    const orphanSkills = skillItems
-      .filter((sk) => !assignedSkillIds.has(sk.id))
-      .map((sk) => ({
-        id: sk.id,
-        name: sk.name,
-        img: sk.img,
-        badge: "",
-        kind: "item"
-      }));
-
-    if (orphanSkills.length > 0) {
-      classGroups.push({
-        id: "class-other",
-        name: "Outras Perícias",
-        faIcon: "fas fa-star",
-        items: orphanSkills
-      });
-    }
-
-    // 5. PODERES HEROICOS
-    const heroics = actor.items
-      .filter((i) => i.type === "heroic")
-      .map((item) => ({
-        id: item.id,
-        name: item.name,
-        img: item.img,
-        badge: "",
-        kind: "item"
-      }));
-
-    // 6. CARACTERÍSTICAS
-    const featureItems = actor.items.filter((i) => i.type === "classFeature");
-    const featureMap = new Map();
-
-    for (const feat of featureItems) {
-      const fType = feat.system?.featureType || "other";
-      if (!featureMap.has(fType)) {
-        const groupLabel = this.resolveFeatureGroupLabel(fType);
-        featureMap.set(fType, {
-          id: `feat-${fType}`,
-          itemId: feat.id,
-          name: groupLabel,
-          img: feat.img,
-          items: []
-        });
-      }
-
-      let toggleAction = null;
-      let isActive = false;
-
-      if (fType === "projectfu.garden") {
-        toggleAction = "toggleActiveGarden";
-        isActive = Boolean(feat.system?.data?.active || equipped.garden === feat.id);
-      } else if (fType === "projectfu.magiseed") {
-        toggleAction = "togglePlantedMagiseed";
-        isActive = Boolean(feat.system?.data?.planted || equipped.magiseed === feat.id);
-      } else if (fType === "projectfu.therioform") {
-        isActive = Array.isArray(equipped.therioforms) && equipped.therioforms.includes(feat.id);
-      }
-
-      featureMap.get(fType).items.push({
-        id: feat.id,
-        name: feat.name,
-        img: feat.img,
-        badge: isActive ? "Ativo" : "",
-        kind: "item",
-        toggleAction,
-        isActive
-      });
-    }
-
-    const featureGroups = Array.from(featureMap.values());
-
-    // 7. ITENS (Acessórios + Consumíveis)
-    const items = actor.items
-      .filter((i) => i.type === "accessory" || i.type === "consumable")
-      .map((item) => {
-        let badge = "";
-        if (item.type === "accessory" && equipped.accessory === item.id) {
-          badge = "Equipado";
-        } else if (item.type === "consumable") {
-          const ipCost = item.system?.ipCost?.value ?? item.system?.ipCost;
-          if (ipCost) badge = `${ipCost} PI`;
+      if (item.type === "weapon") {
+        if (sys.hasDamage === false || sys.rollInfo?.damage?.hasDamage?.value === false) {
+          return null;
         }
 
-        return {
-          id: item.id,
-          name: item.name,
-          img: item.img,
-          badge,
-          kind: "item"
-        };
-      });
+        const rawType = String(
+          sys.rollInfo?.damage?.type?.value ??
+            sys.damageType?.value ??
+            (typeof sys.damageType === "string" ? sys.damageType : null) ??
+            "physical"
+        ).toLowerCase();
 
-    const categories = [];
+        return this.DAMAGE_TYPE_ICONS[rawType] ?? null;
+      }
 
-    if (weapons.length > 0) {
-      categories.push({
-        id: "attacks",
-        label: "Ataque",
-        faIcon: "fas fa-sword",
-        items: weapons
-      });
-    }
-
-    if (spells.length > 0) {
-      categories.push({
-        id: "spells",
-        label: "Feitiços",
-        faIcon: "fas fa-hat-wizard",
-        items: spells
-      });
-    }
-
-    categories.push({
-      id: "actions",
-      label: "Ações",
-      faIcon: "fas fa-compass",
-      items: actions
-    });
-
-    if (classGroups.some((g) => g.items.length > 0)) {
-      categories.push({
-        id: "classes",
-        label: "Classes",
-        faIcon: "fas fa-book-open",
-        groups: classGroups.filter((g) => g.items.length > 0)
-      });
-    }
-
-    if (heroics.length > 0) {
-      categories.push({
-        id: "heroics",
-        label: "Poderes Heroicos",
-        faIcon: "fas fa-crown",
-        items: heroics
-      });
-    }
-
-    if (featureGroups.length > 0) {
-      categories.push({
-        id: "features",
-        label: "Características",
-        faIcon: "fas fa-seedling",
-        groups: featureGroups
-      });
-    }
-
-    if (items.length > 0) {
-      categories.push({
-        id: "items",
-        label: "Itens",
-        faIcon: "fas fa-briefcase-medical",
+      if (item.type === "spell
