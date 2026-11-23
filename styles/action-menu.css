@@ -72,6 +72,7 @@
   animation: fu-am-balloon-pop 0.16s ease-out forwards;
 }
 
+/* Cauda inferior centralizada dinamicamente na coluna clicada */
 .fu-am-balloon::after {
   content: "";
   position: absolute;
@@ -201,8 +202,8 @@
 }
 
 .fu-am-subpanel {
-  min-width: 225px;
-  max-width: 310px;
+  min-width: 215px;
+  max-width: 295px;
   animation: fu-am-sub-slide 0.16s ease-out forwards;
 }
 
@@ -280,7 +281,7 @@
   align-items: center;
   gap: 8px;
   padding: 6px 10px;
-  min-height: 32px;
+  min-height: 30px;
   color: #e2e8f0;
   font-size: 13px;
   font-weight: 600;
@@ -360,31 +361,18 @@
   color: #fde047;
 }
 
-/* Quebra de linha natural para nomes longos */
 .fu-am-label {
   flex: 1;
-  min-width: 0;
-  white-space: normal;
-  overflow-wrap: break-word;
-  word-break: break-word;
-  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.95);
-}
-
-/* Ícone de tipo de dano ao lado do nome da arma ou feitiço */
-.fu-am-dmg-icon {
-  display: inline-block;
-  margin-left: 6px;
-  font-size: 12px;
-  vertical-align: middle;
-  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.95));
 }
 
 .fu-am-arrow {
   font-size: 12px;
   color: #94a3b8;
   margin-left: 4px;
-  flex-shrink: 0;
 }
 
 .fu-am-row:hover .fu-am-arrow,
