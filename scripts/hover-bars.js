@@ -50,7 +50,7 @@ class FUHoverBars {
       this.activeToken = null;
       this.hudElement?.classList.add("fu-hover-hidden");
       this.hideTimeout = null;
-    }, 3000);
+    }, 2000);
   }
 
   static render(token) {
@@ -70,7 +70,7 @@ class FUHoverBars {
 
     // Crise (<= 50%) e Perigo Crítico (< 20%)
     const isCrisis = hpVal <= Math.floor(hpMax / 2);
-    const isCritical = hpPct < 20;
+    const isCritical = hpPct < 25;
 
     this.hudElement.innerHTML = `
       <div class="fu-bar-row ${isCritical ? "fu-critical-shake" : ""}">
