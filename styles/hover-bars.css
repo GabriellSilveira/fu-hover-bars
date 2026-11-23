@@ -1,4 +1,4 @@
-#fu-hover-hud {
+.fu-hover-hud {
   position: fixed;
   transform: translateX(-50%);
   z-index: 70;
@@ -14,10 +14,10 @@
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.65);
   opacity: 1;
   visibility: visible;
-  transition: opacity 0.35s ease-out, visibility 0s linear 0s;
+  transition: opacity 0.25s ease-out, visibility 0s linear 0s;
 }
 
-#fu-hover-hud.fu-hover-hidden {
+.fu-hover-hud.fu-hover-hidden {
   opacity: 0;
   visibility: hidden;
   transition: opacity 0.45s ease-out, visibility 0s linear 0.45s;
