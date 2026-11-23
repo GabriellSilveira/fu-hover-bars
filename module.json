@@ -22,7 +22,7 @@
   "styles": [
     "styles/hover-bars.css"
   ],
-  "url": "https://github.com/SEU-USUARIO/fu-hover-bars",
+  "url": "https://github.com/GabriellSilveira/fu-hover-bars",
   "manifest": "https://raw.githubusercontent.com/GabriellSilveira/fu-hover-bars/main/module.json",
   "download": "https://github.com/GabriellSilveira/fu-hover-bars/archive/refs/heads/main.zip"
 }
