@@ -66,7 +66,8 @@ class FUActionMenu {
     actions: "Ações básicas disponíveis para qualquer personagem durante um conflito.",
     classes: "Selecione uma classe para visualizar e utilizar suas perícias.",
     heroics: "Poderes Heroicos adquiridos ao dominar uma classe.",
-    features: "Recursos e características especiais vinculadas às suas classes."
+    features: "Recursos e características especiais vinculadas às suas classes.",
+    items: "Acessórios equipados e consumíveis disponíveis no inventário."
   };
 
   static FEATURE_TYPE_FALLBACKS = {
@@ -164,7 +165,8 @@ class FUActionMenu {
       openCategory: null,
       openSubGroup: null,
       inspectedKey: null,
-      inspectedData: null
+      inspectedData: null,
+      inspectedLevel: 1
     };
 
     el.addEventListener("mouseenter", () => {
@@ -477,9 +479,6 @@ class FUActionMenu {
     return clean.charAt(0).toUpperCase() + clean.slice(1);
   }
 
-  /**
-   * Extrai e enriquece o HTML da descrição de qualquer item ou ação
-   */
   static async resolveDescriptionPayload(actor, inspectTarget) {
     if (inspectTarget.type === "item") {
       const item = actor.items.get(inspectTarget.itemId);
@@ -547,10 +546,11 @@ class FUActionMenu {
     return String(rawHTML);
   }
 
-  static async toggleInspect(entry, key, inspectTarget) {
+  static async toggleInspect(entry, key, inspectTarget, level = 1) {
     if (entry.inspectedKey === key) {
       entry.inspectedKey = null;
       entry.inspectedData = null;
+      entry.inspectedLevel = 1;
       this.render(entry);
       return;
     }
@@ -560,10 +560,11 @@ class FUActionMenu {
 
     entry.inspectedKey = key;
     entry.inspectedData = payload;
+    entry.inspectedLevel = level;
     this.render(entry);
   }
 
-  static renderLeafItemHTML(item, inspectedKey) {
+  static renderLeafItemHTML(item, inspectedKey, level) {
     const iconHTML = item.img
       ? `<img class="fu-am-icon" src="${item.img}" alt="" />`
       : `<i class="fu-am-fa-icon ${item.faIcon || "fas fa-diamond"}"></i>`;
@@ -582,7 +583,7 @@ class FUActionMenu {
       const key = `action:${item.actionType}`;
       const isInspected = inspectedKey === key ? "is-inspected" : "";
       return `
-        <div class="fu-am-row fu-am-leaf ${isInspected}" data-fu-kind="sheetAction" data-action-name="${item.actionName}" data-action-type="${item.actionType}">
+        <div class="fu-am-row fu-am-leaf ${isInspected}" data-fu-kind="sheetAction" data-action-name="${item.actionName}" data-action-type="${item.actionType}" data-level="${level}">
           <span class="fu-am-cursor">☛</span>
           ${iconHTML}
           <span class="fu-am-label">${item.name}</span>
@@ -593,7 +594,7 @@ class FUActionMenu {
     const key = `item:${item.id}`;
     const isInspected = inspectedKey === key ? "is-inspected" : "";
     return `
-      <div class="fu-am-row fu-am-leaf ${isInspected}" data-fu-kind="item" data-item-id="${item.id}">
+      <div class="fu-am-row fu-am-leaf ${isInspected}" data-fu-kind="item" data-item-id="${item.id}" data-level="${level}">
         <span class="fu-am-cursor">☛</span>
         ${iconHTML}
         <span class="fu-am-label">${item.name}</span>
@@ -640,7 +641,7 @@ class FUActionMenu {
         const isOpen = entry.openCategory === cat.id;
         const isInspected = entry.inspectedKey === `cat:${cat.id}` ? "is-inspected" : "";
         return `
-          <div class="fu-am-row fu-am-cat-row ${isOpen ? "is-active" : ""} ${isInspected}" data-cat-id="${cat.id}" data-cat-label="${cat.label}" data-cat-icon="${cat.faIcon}">
+          <div class="fu-am-row fu-am-cat-row ${isOpen ? "is-active" : ""} ${isInspected}" data-cat-id="${cat.id}" data-cat-label="${cat.label}" data-cat-icon="${cat.faIcon}" data-level="1">
             <span class="fu-am-cursor">☛</span>
             <i class="fu-am-fa-icon ${cat.faIcon}"></i>
             <span class="fu-am-label">${cat.label}</span>
@@ -655,9 +656,9 @@ class FUActionMenu {
 
     if (activeCat) {
       if (activeCat.items) {
-        const rows = activeCat.items.map((item) => this.renderLeafItemHTML(item, entry.inspectedKey)).join("");
+        const rows = activeCat.items.map((item) => this.renderLeafItemHTML(item, entry.inspectedKey, 2)).join("");
         level2HTML = `
-          <div class="fu-am-panel fu-am-subpanel fu-am-level2">
+          <div class="fu-am-panel fu-am-subpanel fu-am-level2" data-col-level="2">
             <div class="fu-am-panel-title">${activeCat.label}</div>
             <div class="fu-am-list">${rows}</div>
           </div>
@@ -675,7 +676,7 @@ class FUActionMenu {
               : `<i class="fu-am-fa-icon ${grp.faIcon || "fas fa-folder"}"></i>`;
 
             return `
-              <div class="fu-am-row fu-am-group-row ${isGrpOpen ? "is-active" : ""} ${isInspected}" data-group-id="${grp.id}" data-item-id="${grp.itemId || ""}">
+              <div class="fu-am-row fu-am-group-row ${isGrpOpen ? "is-active" : ""} ${isInspected}" data-group-id="${grp.id}" data-item-id="${grp.itemId || ""}" data-level="2">
                 <span class="fu-am-cursor">☛</span>
                 ${grpIcon}
                 <span class="fu-am-label">${grp.name}</span>
@@ -686,16 +687,16 @@ class FUActionMenu {
           .join("");
 
         level2HTML = `
-          <div class="fu-am-panel fu-am-subpanel fu-am-level2">
+          <div class="fu-am-panel fu-am-subpanel fu-am-level2" data-col-level="2">
             <div class="fu-am-panel-title">${activeCat.label}</div>
             <div class="fu-am-list">${groupRows}</div>
           </div>
         `;
 
         if (activeGroup) {
-          const leafRows = activeGroup.items.map((item) => this.renderLeafItemHTML(item, entry.inspectedKey)).join("");
+          const leafRows = activeGroup.items.map((item) => this.renderLeafItemHTML(item, entry.inspectedKey, 3)).join("");
           level3HTML = `
-            <div class="fu-am-panel fu-am-subpanel fu-am-level3">
+            <div class="fu-am-panel fu-am-subpanel fu-am-level3" data-col-level="3">
               <div class="fu-am-panel-title">${activeGroup.name}</div>
               <div class="fu-am-list">${leafRows}</div>
             </div>
@@ -707,7 +708,7 @@ class FUActionMenu {
     entry.element.innerHTML = `
       ${this.renderBalloonHTML(entry)}
       <div class="fu-am-columns">
-        <div class="fu-am-panel fu-am-main">
+        <div class="fu-am-panel fu-am-main" data-col-level="1">
           <div class="fu-am-header">
             <span class="fu-am-diamond">◈</span>
             <span class="fu-am-actor-name">${actor.name}</span>
@@ -736,6 +737,7 @@ class FUActionMenu {
         ev.stopPropagation();
         entry.inspectedKey = null;
         entry.inspectedData = null;
+        entry.inspectedLevel = 1;
         this.render(entry);
       });
 
@@ -745,6 +747,7 @@ class FUActionMenu {
           ev.stopPropagation();
           entry.inspectedKey = null;
           entry.inspectedData = null;
+          entry.inspectedLevel = 1;
           this.render(entry);
         });
       }
@@ -772,12 +775,17 @@ class FUActionMenu {
       row.addEventListener("contextmenu", async (ev) => {
         ev.preventDefault();
         ev.stopPropagation();
-        await this.toggleInspect(entry, `cat:${catId}`, {
-          type: "category",
-          catId,
-          label: row.dataset.catLabel,
-          faIcon: row.dataset.catIcon
-        });
+        await this.toggleInspect(
+          entry,
+          `cat:${catId}`,
+          {
+            type: "category",
+            catId,
+            label: row.dataset.catLabel,
+            faIcon: row.dataset.catIcon
+          },
+          1
+        );
       });
     }
 
@@ -803,10 +811,15 @@ class FUActionMenu {
         row.addEventListener("contextmenu", async (ev) => {
           ev.preventDefault();
           ev.stopPropagation();
-          await this.toggleInspect(entry, `item:${itemId}`, {
-            type: "item",
-            itemId
-          });
+          await this.toggleInspect(
+            entry,
+            `item:${itemId}`,
+            {
+              type: "item",
+              itemId
+            },
+            2
+          );
         });
       }
     }
@@ -853,19 +866,30 @@ class FUActionMenu {
         ev.preventDefault();
         ev.stopPropagation();
         const kind = leaf.dataset.fuKind;
+        const level = Number(leaf.dataset.level || 2);
 
         if (kind === "item") {
           const itemId = leaf.dataset.itemId;
-          await this.toggleInspect(entry, `item:${itemId}`, {
-            type: "item",
-            itemId
-          });
+          await this.toggleInspect(
+            entry,
+            `item:${itemId}`,
+            {
+              type: "item",
+              itemId
+            },
+            level
+          );
         } else if (kind === "sheetAction") {
           const actionType = leaf.dataset.actionType;
-          await this.toggleInspect(entry, `action:${actionType}`, {
-            type: "sheetAction",
-            actionType
-          });
+          await this.toggleInspect(
+            entry,
+            `action:${actionType}`,
+            {
+              type: "sheetAction",
+              actionType
+            },
+            level
+          );
         }
       });
     }
@@ -917,18 +941,51 @@ class FUActionMenu {
     this.adjustViewportBounds(entry);
   }
 
+  /**
+   * Centraliza o balão de descrição exatamente acima da coluna onde o clique direito ocorreu
+   */
+  static positionBalloon(entry) {
+    const balloon = entry?.element?.querySelector(".fu-am-balloon");
+    if (!balloon) return;
+
+    const menuRect = entry.element.getBoundingClientRect();
+    let targetCol = entry.element.querySelector(`[data-col-level="${entry.inspectedLevel}"]`);
+    if (!targetCol) {
+      targetCol = entry.element.querySelector('[data-col-level="1"]');
+    }
+    if (!targetCol) return;
+
+    const colRect = targetCol.getBoundingClientRect();
+    const balloonRect = balloon.getBoundingClientRect();
+    const balloonWidth = balloonRect.width || 330;
+
+    // Centro horizontal da coluna clicada relativo ao container do menu
+    const colCenterRelX = colRect.left - menuRect.left + colRect.width / 2;
+    let desiredLeft = colCenterRelX - balloonWidth / 2;
+
+    // Impede que o balão corte nas bordas esquerda ou direita da janela
+    const minScreenLeft = 12;
+    const maxScreenLeft = window.innerWidth - balloonWidth - 12;
+    const clampedScreenLeft = Math.min(Math.max(menuRect.left + desiredLeft, minScreenLeft), maxScreenLeft);
+    desiredLeft = clampedScreenLeft - menuRect.left;
+
+    balloon.style.left = `${desiredLeft}px`;
+
+    // Posiciona a setinha do balão apontando exatamente para o centro da coluna
+    const arrowOffset = Math.min(Math.max(colCenterRelX - desiredLeft, 18), balloonWidth - 18);
+    balloon.style.setProperty("--balloon-arrow-x", `${arrowOffset}px`);
+  }
+
   static adjustViewportBounds(entry) {
     if (!entry?.element) return;
     const rect = entry.element.getBoundingClientRect();
 
-    // Inverte para a esquerda se encostar na borda direita da tela
     if (rect.right > window.innerWidth - 12) {
       entry.element.classList.add("fu-am-flip-left");
     } else {
       entry.element.classList.remove("fu-am-flip-left");
     }
 
-    // Se o token estiver muito perto do topo, abre o balão de descrição abaixo do menu
     const balloon = entry.element.querySelector(".fu-am-balloon");
     if (balloon) {
       if (rect.top < 175) {
@@ -936,6 +993,7 @@ class FUActionMenu {
       } else {
         entry.element.classList.remove("fu-am-balloon-below");
       }
+      this.positionBalloon(entry);
     }
   }
 
