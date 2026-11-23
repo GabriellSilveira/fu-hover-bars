@@ -135,6 +135,24 @@ class FUActionMenu {
     }
   }
 
+  static clearBalloonState(entry) {
+    entry.inspectedKey = null;
+    entry.inspectedData = null;
+    entry.inspectedLevel = 1;
+  }
+
+  static dismissBalloon(entry) {
+    if (!entry.inspectedKey && !entry.inspectedData) return;
+    this.clearBalloonState(entry);
+
+    const balloon = entry.element?.querySelector(".fu-am-balloon");
+    if (balloon) balloon.remove();
+
+    for (const row of entry.element?.querySelectorAll(".fu-am-row.is-inspected") ?? []) {
+      row.classList.remove("is-inspected");
+    }
+  }
+
   static show(token) {
     if (!this.canDisplayForToken(token)) return;
 
@@ -146,6 +164,7 @@ class FUActionMenu {
     if (entry) {
       this.clearTimers(entry);
       entry.isPointerInsideMenu = false;
+      this.clearBalloonState(entry);
       this.render(entry);
       this.updatePosition(entry);
       entry.element.classList.remove("fu-am-hidden");
@@ -204,6 +223,7 @@ class FUActionMenu {
     entry.hideTimeout = setTimeout(() => {
       if (entry.isPointerInsideMenu) return;
 
+      this.clearBalloonState(entry);
       entry.element.classList.add("fu-am-hidden");
       entry.hideTimeout = null;
 
@@ -548,9 +568,7 @@ class FUActionMenu {
 
   static async toggleInspect(entry, key, inspectTarget, level = 1) {
     if (entry.inspectedKey === key) {
-      entry.inspectedKey = null;
-      entry.inspectedData = null;
-      entry.inspectedLevel = 1;
+      this.clearBalloonState(entry);
       this.render(entry);
       return;
     }
@@ -583,7 +601,7 @@ class FUActionMenu {
       const key = `action:${item.actionType}`;
       const isInspected = inspectedKey === key ? "is-inspected" : "";
       return `
-        <div class="fu-am-row fu-am-leaf ${isInspected}" data-fu-kind="sheetAction" data-action-name="${item.actionName}" data-action-type="${item.actionType}" data-level="${level}">
+        <div class="fu-am-row fu-am-leaf ${isInspected}" data-inspect-key="${key}" data-fu-kind="sheetAction" data-action-name="${item.actionName}" data-action-type="${item.actionType}" data-level="${level}">
           <span class="fu-am-cursor">☛</span>
           ${iconHTML}
           <span class="fu-am-label">${item.name}</span>
@@ -594,7 +612,7 @@ class FUActionMenu {
     const key = `item:${item.id}`;
     const isInspected = inspectedKey === key ? "is-inspected" : "";
     return `
-      <div class="fu-am-row fu-am-leaf ${isInspected}" data-fu-kind="item" data-item-id="${item.id}" data-level="${level}">
+      <div class="fu-am-row fu-am-leaf ${isInspected}" data-inspect-key="${key}" data-fu-kind="item" data-item-id="${item.id}" data-level="${level}">
         <span class="fu-am-cursor">☛</span>
         ${iconHTML}
         <span class="fu-am-label">${item.name}</span>
@@ -638,10 +656,11 @@ class FUActionMenu {
 
     const mainRowsHTML = categories
       .map((cat) => {
+        const key = `cat:${cat.id}`;
         const isOpen = entry.openCategory === cat.id;
-        const isInspected = entry.inspectedKey === `cat:${cat.id}` ? "is-inspected" : "";
+        const isInspected = entry.inspectedKey === key ? "is-inspected" : "";
         return `
-          <div class="fu-am-row fu-am-cat-row ${isOpen ? "is-active" : ""} ${isInspected}" data-cat-id="${cat.id}" data-cat-label="${cat.label}" data-cat-icon="${cat.faIcon}" data-level="1">
+          <div class="fu-am-row fu-am-cat-row ${isOpen ? "is-active" : ""} ${isInspected}" data-inspect-key="${key}" data-cat-id="${cat.id}" data-cat-label="${cat.label}" data-cat-icon="${cat.faIcon}" data-level="1">
             <span class="fu-am-cursor">☛</span>
             <i class="fu-am-fa-icon ${cat.faIcon}"></i>
             <span class="fu-am-label">${cat.label}</span>
@@ -669,14 +688,15 @@ class FUActionMenu {
 
         const groupRows = activeCat.groups
           .map((grp) => {
+            const key = grp.itemId ? `item:${grp.itemId}` : `group:${grp.id}`;
             const isGrpOpen = entry.openSubGroup === grp.id;
-            const isInspected = grp.itemId && entry.inspectedKey === `item:${grp.itemId}` ? "is-inspected" : "";
+            const isInspected = entry.inspectedKey === key ? "is-inspected" : "";
             const grpIcon = grp.img
               ? `<img class="fu-am-icon" src="${grp.img}" alt="" />`
               : `<i class="fu-am-fa-icon ${grp.faIcon || "fas fa-folder"}"></i>`;
 
             return `
-              <div class="fu-am-row fu-am-group-row ${isGrpOpen ? "is-active" : ""} ${isInspected}" data-group-id="${grp.id}" data-item-id="${grp.itemId || ""}" data-level="2">
+              <div class="fu-am-row fu-am-group-row ${isGrpOpen ? "is-active" : ""} ${isInspected}" data-inspect-key="${key}" data-group-id="${grp.id}" data-item-id="${grp.itemId || ""}" data-level="2">
                 <span class="fu-am-cursor">☛</span>
                 ${grpIcon}
                 <span class="fu-am-label">${grp.name}</span>
@@ -735,20 +755,14 @@ class FUActionMenu {
       balloon.addEventListener("contextmenu", (ev) => {
         ev.preventDefault();
         ev.stopPropagation();
-        entry.inspectedKey = null;
-        entry.inspectedData = null;
-        entry.inspectedLevel = 1;
-        this.render(entry);
+        this.dismissBalloon(entry);
       });
 
       const closeBtn = balloon.querySelector(".fu-am-balloon-close");
       if (closeBtn) {
         closeBtn.addEventListener("click", (ev) => {
           ev.stopPropagation();
-          entry.inspectedKey = null;
-          entry.inspectedData = null;
-          entry.inspectedLevel = 1;
-          this.render(entry);
+          this.dismissBalloon(entry);
         });
       }
     }
@@ -756,8 +770,12 @@ class FUActionMenu {
     // Categorias principais (Nível 1)
     for (const row of root.querySelectorAll(".fu-am-cat-row")) {
       const catId = row.dataset.catId;
+      const rowKey = row.dataset.inspectKey;
 
       row.addEventListener("mouseenter", () => {
+        if (entry.inspectedKey && entry.inspectedKey !== rowKey) {
+          this.dismissBalloon(entry);
+        }
         if (entry.openCategory !== catId) {
           entry.openCategory = catId;
           entry.openSubGroup = null;
@@ -767,6 +785,7 @@ class FUActionMenu {
 
       row.addEventListener("click", (ev) => {
         ev.stopPropagation();
+        this.clearBalloonState(entry);
         entry.openCategory = entry.openCategory === catId ? null : catId;
         entry.openSubGroup = null;
         this.render(entry);
@@ -777,7 +796,7 @@ class FUActionMenu {
         ev.stopPropagation();
         await this.toggleInspect(
           entry,
-          `cat:${catId}`,
+          rowKey,
           {
             type: "category",
             catId,
@@ -793,8 +812,12 @@ class FUActionMenu {
     for (const row of root.querySelectorAll(".fu-am-group-row")) {
       const groupId = row.dataset.groupId;
       const itemId = row.dataset.itemId;
+      const rowKey = row.dataset.inspectKey;
 
       row.addEventListener("mouseenter", () => {
+        if (entry.inspectedKey && entry.inspectedKey !== rowKey) {
+          this.dismissBalloon(entry);
+        }
         if (entry.openSubGroup !== groupId) {
           entry.openSubGroup = groupId;
           this.render(entry);
@@ -803,6 +826,7 @@ class FUActionMenu {
 
       row.addEventListener("click", (ev) => {
         ev.stopPropagation();
+        this.clearBalloonState(entry);
         entry.openSubGroup = entry.openSubGroup === groupId ? null : groupId;
         this.render(entry);
       });
@@ -813,7 +837,7 @@ class FUActionMenu {
           ev.stopPropagation();
           await this.toggleInspect(
             entry,
-            `item:${itemId}`,
+            rowKey,
             {
               type: "item",
               itemId
@@ -838,8 +862,16 @@ class FUActionMenu {
       });
     }
 
-    // Itens finais e ações de combate (Esquerdo = Executa | Direito = Descrição)
+    // Itens finais e ações de combate (Hover = Fecha balão de outro item | Esquerdo = Executa | Direito = Descrição)
     for (const leaf of root.querySelectorAll(".fu-am-leaf")) {
+      const rowKey = leaf.dataset.inspectKey;
+
+      leaf.addEventListener("mouseenter", () => {
+        if (entry.inspectedKey && entry.inspectedKey !== rowKey) {
+          this.dismissBalloon(entry);
+        }
+      });
+
       leaf.addEventListener("click", async (ev) => {
         ev.stopPropagation();
         const kind = leaf.dataset.fuKind;
@@ -872,7 +904,7 @@ class FUActionMenu {
           const itemId = leaf.dataset.itemId;
           await this.toggleInspect(
             entry,
-            `item:${itemId}`,
+            rowKey,
             {
               type: "item",
               itemId
@@ -883,7 +915,7 @@ class FUActionMenu {
           const actionType = leaf.dataset.actionType;
           await this.toggleInspect(
             entry,
-            `action:${actionType}`,
+            rowKey,
             {
               type: "sheetAction",
               actionType
@@ -941,9 +973,6 @@ class FUActionMenu {
     this.adjustViewportBounds(entry);
   }
 
-  /**
-   * Centraliza o balão de descrição exatamente acima da coluna onde o clique direito ocorreu
-   */
   static positionBalloon(entry) {
     const balloon = entry?.element?.querySelector(".fu-am-balloon");
     if (!balloon) return;
@@ -959,11 +988,9 @@ class FUActionMenu {
     const balloonRect = balloon.getBoundingClientRect();
     const balloonWidth = balloonRect.width || 330;
 
-    // Centro horizontal da coluna clicada relativo ao container do menu
     const colCenterRelX = colRect.left - menuRect.left + colRect.width / 2;
     let desiredLeft = colCenterRelX - balloonWidth / 2;
 
-    // Impede que o balão corte nas bordas esquerda ou direita da janela
     const minScreenLeft = 12;
     const maxScreenLeft = window.innerWidth - balloonWidth - 12;
     const clampedScreenLeft = Math.min(Math.max(menuRect.left + desiredLeft, minScreenLeft), maxScreenLeft);
@@ -971,7 +998,6 @@ class FUActionMenu {
 
     balloon.style.left = `${desiredLeft}px`;
 
-    // Posiciona a setinha do balão apontando exatamente para o centro da coluna
     const arrowOffset = Math.min(Math.max(colCenterRelX - desiredLeft, 18), balloonWidth - 18);
     balloon.style.setProperty("--balloon-arrow-x", `${arrowOffset}px`);
   }
