@@ -1,6 +1,7 @@
 class FUHoverBars {
   static hudElement = null;
   static activeToken = null;
+  static hideTimeout = null;
 
   static init() {
     const el = document.createElement("div");
@@ -10,25 +11,46 @@ class FUHoverBars {
     this.hudElement = el;
   }
 
-  static canView(token) {
-    const actor = token?.actor;
-    if (!actor) return false;
-    // Mestre vê todos; jogadores veem apenas tokens em que têm permissão de Observador/Dono
-    return game.user.isGM || actor.testUserPermission(game.user, "OBSERVER");
+  static hasValidResources(token) {
+    if (!token?.visible) return false;
+    const res = token.actor?.system?.resources;
+    return Boolean(res && res.hp !== undefined);
+  }
+
+  static clearHideTimer() {
+    if (this.hideTimeout) {
+      clearTimeout(this.hideTimeout);
+      this.hideTimeout = null;
+    }
   }
 
   static show(token) {
-    if (!this.hudElement || !this.canView(token)) return;
+    if (!this.hudElement || !this.hasValidResources(token)) return;
+
+    this.clearHideTimer();
+
     this.activeToken = token;
     this.render(token);
     this.updatePosition();
     this.hudElement.classList.remove("fu-hover-hidden");
   }
 
-  static hide(token) {
+  static hide(token, immediate = false) {
     if (token && this.activeToken?.id !== token.id) return;
-    this.activeToken = null;
-    this.hudElement?.classList.add("fu-hover-hidden");
+
+    this.clearHideTimer();
+
+    if (immediate) {
+      this.activeToken = null;
+      this.hudElement?.classList.add("fu-hover-hidden");
+      return;
+    }
+
+    this.hideTimeout = setTimeout(() => {
+      this.activeToken = null;
+      this.hudElement?.classList.add("fu-hover-hidden");
+      this.hideTimeout = null;
+    }, 3000);
   }
 
   static render(token) {
@@ -46,11 +68,12 @@ class FUHoverBars {
     const mpPct = Math.min(100, Math.max(0, (mpVal / mpMax) * 100));
     const ipPct = Math.min(100, Math.max(0, (ipVal / ipMax) * 100));
 
-    // No Fabula Ultima, Crise ocorre com PV <= metade do máximo
+    // Crise (<= 50%) e Perigo Crítico (< 20%)
     const isCrisis = hpVal <= Math.floor(hpMax / 2);
+    const isCritical = hpPct < 20;
 
     this.hudElement.innerHTML = `
-      <div class="fu-bar-row">
+      <div class="fu-bar-row ${isCritical ? "fu-critical-shake" : ""}">
         <span class="fu-bar-label">PV</span>
         <div class="fu-bar-track">
           <div class="fu-bar-fill ${isCrisis ? "fu-crisis" : "fu-hp"}" style="width: ${hpPct}%;"></div>
@@ -77,7 +100,6 @@ class FUHoverBars {
   static updatePosition() {
     if (!this.activeToken || !this.hudElement || !canvas?.stage) return;
 
-    // Calcula o centro inferior do token em coordenadas de tela
     const bottomCenterWorld = {
       x: this.activeToken.x + this.activeToken.w / 2,
       y: this.activeToken.y + this.activeToken.h
@@ -108,5 +130,5 @@ Hooks.on("updateActor", (actor) => {
 });
 
 Hooks.on("deleteToken", (tokenDoc) => {
-  if (FUHoverBars.activeToken?.id === tokenDoc.id) FUHoverBars.hide();
+  if (FUHoverBars.activeToken?.id === tokenDoc.id) FUHoverBars.hide(null, true);
 });
