@@ -138,7 +138,7 @@ class FUActionMenu {
   static clearBalloonState(entry) {
     entry.inspectedKey = null;
     entry.inspectedData = null;
-    entry.inspectedLevel = 1;
+    entry.inspectedLevel = null;
   }
 
   static dismissBalloon(entry) {
@@ -185,7 +185,7 @@ class FUActionMenu {
       openSubGroup: null,
       inspectedKey: null,
       inspectedData: null,
-      inspectedLevel: 1
+      inspectedLevel: null
     };
 
     el.addEventListener("mouseenter", () => {
@@ -767,16 +767,26 @@ class FUActionMenu {
       }
     }
 
+    // Entrar em uma coluna DIFERENTE da coluna pinada fecha o balão; mover para cima/baixo na MESMA coluna mantém pinado
+    for (const col of root.querySelectorAll("[data-col-level]")) {
+      const colLevel = Number(col.dataset.colLevel);
+      col.addEventListener("mouseenter", () => {
+        if (entry.inspectedLevel !== null && entry.inspectedLevel !== colLevel) {
+          this.dismissBalloon(entry);
+        }
+      });
+    }
+
     // Categorias principais (Nível 1)
     for (const row of root.querySelectorAll(".fu-am-cat-row")) {
       const catId = row.dataset.catId;
       const rowKey = row.dataset.inspectKey;
 
       row.addEventListener("mouseenter", () => {
-        if (entry.inspectedKey && entry.inspectedKey !== rowKey) {
-          this.dismissBalloon(entry);
-        }
         if (entry.openCategory !== catId) {
+          if (entry.inspectedLevel !== null && entry.inspectedLevel !== 1) {
+            this.clearBalloonState(entry);
+          }
           entry.openCategory = catId;
           entry.openSubGroup = null;
           this.render(entry);
@@ -815,10 +825,10 @@ class FUActionMenu {
       const rowKey = row.dataset.inspectKey;
 
       row.addEventListener("mouseenter", () => {
-        if (entry.inspectedKey && entry.inspectedKey !== rowKey) {
-          this.dismissBalloon(entry);
-        }
         if (entry.openSubGroup !== groupId) {
+          if (entry.inspectedLevel !== null && entry.inspectedLevel !== 2) {
+            this.clearBalloonState(entry);
+          }
           entry.openSubGroup = groupId;
           this.render(entry);
         }
@@ -862,15 +872,9 @@ class FUActionMenu {
       });
     }
 
-    // Itens finais e ações de combate (Hover = Fecha balão de outro item | Esquerdo = Executa | Direito = Descrição)
+    // Itens finais e ações de combate (Esquerdo = Executa | Direito = Pina/Despina Descrição)
     for (const leaf of root.querySelectorAll(".fu-am-leaf")) {
       const rowKey = leaf.dataset.inspectKey;
-
-      leaf.addEventListener("mouseenter", () => {
-        if (entry.inspectedKey && entry.inspectedKey !== rowKey) {
-          this.dismissBalloon(entry);
-        }
-      });
 
       leaf.addEventListener("click", async (ev) => {
         ev.stopPropagation();
