@@ -9,44 +9,65 @@ class FUActionMenu {
       label: "Guarda",
       icon: "fas fa-shield-alt",
       action: "action",
-      type: "guard"
+      type: "guard",
+      description:
+        "<p>Apenas <strong>uma vez por turno</strong>. Até o início do seu próximo turno:</p><ul><li>Você ganha <strong>Resistência</strong> a todos os tipos de dano.</li><li>Você ganha <strong>+2 de bônus</strong> em Testes Opostos.</li><li>Você pode <strong>Proteger</strong> outra criatura e impedir que inimigos realizem ataques corpo-a-corpo contra ela.</li></ul>"
     },
     {
       id: "hinder",
       label: "Impedir",
       icon: "fas fa-ban",
       action: "action",
-      type: "hinder"
+      type: "hinder",
+      description:
+        "<p>Você faz um teste (<strong>ND 10</strong>) contra um oponente. Se tiver sucesso, você o deixa <strong>Abalado, Atordoado, Lento ou Fraco</strong>.</p>"
     },
     {
       id: "objective",
       label: "Objetivo",
       icon: "fas fa-bullseye",
       action: "action",
-      type: "objective"
+      type: "objective",
+      description:
+        "<p>Trabalhe para cumprir um objetivo dentro do conflito. Requer um <strong>Teste de Atributo</strong> ou <strong>Teste Oposto</strong>. Metas complexas geralmente exigem um relógio.</p>"
     },
     {
       id: "inventory",
       label: "Inventário",
       icon: "fas fa-flask",
       action: "action",
-      type: "inventory"
+      type: "inventory",
+      description:
+        "<p>Gaste <strong>Pontos de Inventário (PI)</strong> para criar e utilizar imediatamente um consumível (como Poções, Elixires ou Remédios).</p>"
     },
     {
       id: "study",
       label: "Estudo",
       icon: "fas fa-search",
       action: "action",
-      type: "study"
+      type: "study",
+      description:
+        "<p>Você tenta obter informações sobre alguém ou alguma coisa. Geralmente um Teste Genérico <strong>【AST + AST】</strong>. Não é possível fazer a mesma pergunta duas vezes.</p>"
     },
     {
       id: "equipment",
       label: "Equipamento",
       icon: "fas fa-exchange-alt",
       action: "action",
-      type: "equipment"
+      type: "equipment",
+      description:
+        "<p>Troque qualquer número de itens equipados com qualquer número de itens em seu inventário (exceto por <strong>Armadura</strong>).</p>"
     }
   ];
+
+  static CATEGORY_DESCRIPTIONS = {
+    attacks: "Realize um ataque corpo-a-corpo ou à distância utilizando uma de suas armas.",
+    spells: "Conjure um feitiço gastando Pontos de Mana (PM).",
+    actions: "Ações básicas disponíveis para qualquer personagem durante um conflito.",
+    classes: "Selecione uma classe para visualizar e utilizar suas perícias.",
+    heroics: "Poderes Heroicos adquiridos ao dominar uma classe.",
+    features: "Recursos e características especiais vinculadas às suas classes."
+  };
 
   static FEATURE_TYPE_FALLBACKS = {
     "projectfu.garden": "Jardim",
@@ -85,12 +106,6 @@ class FUActionMenu {
     }
   }
 
-  /**
-   * Valida estritamente se:
-   * 1. A feature está ativada nas configurações
-   * 2. O usuário atual é dono do token/ator
-   * 3. Há um combate iniciado e este token é o combatente do turno atual
-   */
   static canDisplayForToken(token) {
     if (!this.isEnabled()) return false;
     if (!token?.visible || !token.actor) return false;
@@ -122,7 +137,6 @@ class FUActionMenu {
   static show(token) {
     if (!this.canDisplayForToken(token)) return;
 
-    // Fecha menus de outros tokens caso existam
     for (const [otherId] of this.activeMenus) {
       if (otherId !== token.id) this.hide(otherId, true);
     }
@@ -148,7 +162,9 @@ class FUActionMenu {
       cleanupTimeout: null,
       isPointerInsideMenu: false,
       openCategory: null,
-      openSubGroup: null
+      openSubGroup: null,
+      inspectedKey: null,
+      inspectedData: null
     };
 
     el.addEventListener("mouseenter", () => {
@@ -203,13 +219,10 @@ class FUActionMenu {
     }
   }
 
-  /**
-   * Coleta e organiza todas as ações e itens do personagem exatamente como na ficha
-   */
   static buildMenuData(actor) {
     const equipped = actor.system?.equipped ?? {};
 
-    // 1. ATAQUE (Armas)
+    // 1. ATAQUE
     const weapons = actor.items
       .filter((i) => i.type === "weapon")
       .map((item) => {
@@ -281,13 +294,13 @@ class FUActionMenu {
 
       return {
         id: `class-${cls.id}`,
+        itemId: cls.id,
         name: cls.name,
         img: cls.img,
         items: matchingSkills
       };
     });
 
-    // Perícias sem classe vinculada (caso existam)
     const assignedSkillIds = new Set(classGroups.flatMap((g) => g.items.map((i) => i.id)));
     const orphanSkills = skillItems
       .filter((sk) => !assignedSkillIds.has(sk.id))
@@ -319,7 +332,7 @@ class FUActionMenu {
         kind: "item"
       }));
 
-    // 6. CARACTERÍSTICAS -> Agrupadas por featureType (Jardim, Magissemente, Terioforma, etc.)
+    // 6. CARACTERÍSTICAS
     const featureItems = actor.items.filter((i) => i.type === "classFeature");
     const featureMap = new Map();
 
@@ -329,6 +342,7 @@ class FUActionMenu {
         const groupLabel = this.resolveFeatureGroupLabel(fType);
         featureMap.set(fType, {
           id: `feat-${fType}`,
+          itemId: feat.id,
           name: groupLabel,
           img: feat.img,
           items: []
@@ -382,7 +396,6 @@ class FUActionMenu {
         };
       });
 
-    // Monta as categorias principais
     const categories = [];
 
     if (weapons.length > 0) {
@@ -465,9 +478,92 @@ class FUActionMenu {
   }
 
   /**
-   * Renderiza um item individual com ícone à esquerda, título e badge opcional
+   * Extrai e enriquece o HTML da descrição de qualquer item ou ação
    */
-  static renderLeafItemHTML(item) {
+  static async resolveDescriptionPayload(actor, inspectTarget) {
+    if (inspectTarget.type === "item") {
+      const item = actor.items.get(inspectTarget.itemId);
+      if (!item) return null;
+
+      const rawDesc =
+        item.system?.description ||
+        item.system?.data?.description ||
+        item.system?.summary?.value ||
+        (typeof item.system?.summary === "string" ? item.system.summary : "") ||
+        "<p><em>Sem descrição cadastrada na ficha.</em></p>";
+
+      const enriched = await this.enrichDescriptionHTML(rawDesc, item);
+      return {
+        title: item.name,
+        img: item.img,
+        faIcon: null,
+        html: enriched
+      };
+    }
+
+    if (inspectTarget.type === "sheetAction") {
+      const act = this.COMBAT_ACTIONS.find((a) => a.type === inspectTarget.actionType);
+      if (!act) return null;
+
+      const enriched = await this.enrichDescriptionHTML(act.description, actor);
+      return {
+        title: act.label,
+        img: null,
+        faIcon: act.icon,
+        html: enriched
+      };
+    }
+
+    if (inspectTarget.type === "category") {
+      const text = this.CATEGORY_DESCRIPTIONS[inspectTarget.catId];
+      if (!text) return null;
+
+      return {
+        title: inspectTarget.label,
+        img: null,
+        faIcon: inspectTarget.faIcon,
+        html: `<p>${text}</p>`
+      };
+    }
+
+    return null;
+  }
+
+  static async enrichDescriptionHTML(rawHTML, relativeTo) {
+    try {
+      const enricher =
+        foundry?.applications?.ux?.TextEditor?.implementation?.enrichHTML ??
+        TextEditor?.enrichHTML;
+
+      if (typeof enricher === "function") {
+        return await enricher(String(rawHTML), {
+          relativeTo,
+          async: true
+        });
+      }
+    } catch (err) {
+      console.warn("[fu-hover-bars] Erro ao enriquecer descrição:", err);
+    }
+    return String(rawHTML);
+  }
+
+  static async toggleInspect(entry, key, inspectTarget) {
+    if (entry.inspectedKey === key) {
+      entry.inspectedKey = null;
+      entry.inspectedData = null;
+      this.render(entry);
+      return;
+    }
+
+    const payload = await this.resolveDescriptionPayload(entry.token.actor, inspectTarget);
+    if (!payload) return;
+
+    entry.inspectedKey = key;
+    entry.inspectedData = payload;
+    this.render(entry);
+  }
+
+  static renderLeafItemHTML(item, inspectedKey) {
     const iconHTML = item.img
       ? `<img class="fu-am-icon" src="${item.img}" alt="" />`
       : `<i class="fu-am-fa-icon ${item.faIcon || "fas fa-diamond"}"></i>`;
@@ -483,8 +579,10 @@ class FUActionMenu {
       : "";
 
     if (item.kind === "sheetAction") {
+      const key = `action:${item.actionType}`;
+      const isInspected = inspectedKey === key ? "is-inspected" : "";
       return `
-        <div class="fu-am-row fu-am-leaf" data-fu-kind="sheetAction" data-action-name="${item.actionName}" data-action-type="${item.actionType}">
+        <div class="fu-am-row fu-am-leaf ${isInspected}" data-fu-kind="sheetAction" data-action-name="${item.actionName}" data-action-type="${item.actionType}">
           <span class="fu-am-cursor">☛</span>
           ${iconHTML}
           <span class="fu-am-label">${item.name}</span>
@@ -492,13 +590,35 @@ class FUActionMenu {
       `;
     }
 
+    const key = `item:${item.id}`;
+    const isInspected = inspectedKey === key ? "is-inspected" : "";
     return `
-      <div class="fu-am-row fu-am-leaf" data-fu-kind="item" data-item-id="${item.id}">
+      <div class="fu-am-row fu-am-leaf ${isInspected}" data-fu-kind="item" data-item-id="${item.id}">
         <span class="fu-am-cursor">☛</span>
         ${iconHTML}
         <span class="fu-am-label">${item.name}</span>
         ${badgeHTML}
         ${toggleBtnHTML}
+      </div>
+    `;
+  }
+
+  static renderBalloonHTML(entry) {
+    if (!entry.inspectedData) return "";
+
+    const data = entry.inspectedData;
+    const iconHTML = data.img
+      ? `<img class="fu-am-balloon-icon" src="${data.img}" alt="" />`
+      : `<i class="fu-am-balloon-fa ${data.faIcon || "fas fa-info-circle"}"></i>`;
+
+    return `
+      <div class="fu-am-balloon" title="Clique com o botão direito novamente para fechar">
+        <div class="fu-am-balloon-header">
+          ${iconHTML}
+          <span class="fu-am-balloon-title">${data.title}</span>
+          <button type="button" class="fu-am-balloon-close" title="Fechar">✕</button>
+        </div>
+        <div class="fu-am-balloon-body">${data.html}</div>
       </div>
     `;
   }
@@ -509,7 +629,6 @@ class FUActionMenu {
 
     const categories = this.buildMenuData(actor);
 
-    // Garante que a categoria/subgrupo abertos ainda existem
     const activeCat = categories.find((c) => c.id === entry.openCategory) ?? null;
     if (!activeCat) {
       entry.openCategory = null;
@@ -519,8 +638,9 @@ class FUActionMenu {
     const mainRowsHTML = categories
       .map((cat) => {
         const isOpen = entry.openCategory === cat.id;
+        const isInspected = entry.inspectedKey === `cat:${cat.id}` ? "is-inspected" : "";
         return `
-          <div class="fu-am-row fu-am-cat-row ${isOpen ? "is-active" : ""}" data-cat-id="${cat.id}">
+          <div class="fu-am-row fu-am-cat-row ${isOpen ? "is-active" : ""} ${isInspected}" data-cat-id="${cat.id}" data-cat-label="${cat.label}" data-cat-icon="${cat.faIcon}">
             <span class="fu-am-cursor">☛</span>
             <i class="fu-am-fa-icon ${cat.faIcon}"></i>
             <span class="fu-am-label">${cat.label}</span>
@@ -530,13 +650,12 @@ class FUActionMenu {
       })
       .join("");
 
-    // Submenu Nível 2 (Lista direta de itens OU lista de Classes / Características)
     let level2HTML = "";
     let level3HTML = "";
 
     if (activeCat) {
       if (activeCat.items) {
-        const rows = activeCat.items.map((item) => this.renderLeafItemHTML(item)).join("");
+        const rows = activeCat.items.map((item) => this.renderLeafItemHTML(item, entry.inspectedKey)).join("");
         level2HTML = `
           <div class="fu-am-panel fu-am-subpanel fu-am-level2">
             <div class="fu-am-panel-title">${activeCat.label}</div>
@@ -550,12 +669,13 @@ class FUActionMenu {
         const groupRows = activeCat.groups
           .map((grp) => {
             const isGrpOpen = entry.openSubGroup === grp.id;
+            const isInspected = grp.itemId && entry.inspectedKey === `item:${grp.itemId}` ? "is-inspected" : "";
             const grpIcon = grp.img
               ? `<img class="fu-am-icon" src="${grp.img}" alt="" />`
               : `<i class="fu-am-fa-icon ${grp.faIcon || "fas fa-folder"}"></i>`;
 
             return `
-              <div class="fu-am-row fu-am-group-row ${isGrpOpen ? "is-active" : ""}" data-group-id="${grp.id}">
+              <div class="fu-am-row fu-am-group-row ${isGrpOpen ? "is-active" : ""} ${isInspected}" data-group-id="${grp.id}" data-item-id="${grp.itemId || ""}">
                 <span class="fu-am-cursor">☛</span>
                 ${grpIcon}
                 <span class="fu-am-label">${grp.name}</span>
@@ -572,9 +692,8 @@ class FUActionMenu {
           </div>
         `;
 
-        // Submenu Nível 3 (Habilidades da Classe selecionada ou Opções da Característica)
         if (activeGroup) {
-          const leafRows = activeGroup.items.map((item) => this.renderLeafItemHTML(item)).join("");
+          const leafRows = activeGroup.items.map((item) => this.renderLeafItemHTML(item, entry.inspectedKey)).join("");
           level3HTML = `
             <div class="fu-am-panel fu-am-subpanel fu-am-level3">
               <div class="fu-am-panel-title">${activeGroup.name}</div>
@@ -586,6 +705,7 @@ class FUActionMenu {
     }
 
     entry.element.innerHTML = `
+      ${this.renderBalloonHTML(entry)}
       <div class="fu-am-columns">
         <div class="fu-am-panel fu-am-main">
           <div class="fu-am-header">
@@ -602,13 +722,35 @@ class FUActionMenu {
     `;
 
     this.bindEvents(entry);
-    this.adjustHorizontalFlip(entry);
+    this.adjustViewportBounds(entry);
   }
 
   static bindEvents(entry) {
     const root = entry.element;
 
-    // Hover e clique nas categorias principais (Nível 1)
+    // Botão fechar ou clique direito no próprio balão também fecha a descrição
+    const balloon = root.querySelector(".fu-am-balloon");
+    if (balloon) {
+      balloon.addEventListener("contextmenu", (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        entry.inspectedKey = null;
+        entry.inspectedData = null;
+        this.render(entry);
+      });
+
+      const closeBtn = balloon.querySelector(".fu-am-balloon-close");
+      if (closeBtn) {
+        closeBtn.addEventListener("click", (ev) => {
+          ev.stopPropagation();
+          entry.inspectedKey = null;
+          entry.inspectedData = null;
+          this.render(entry);
+        });
+      }
+    }
+
+    // Categorias principais (Nível 1)
     for (const row of root.querySelectorAll(".fu-am-cat-row")) {
       const catId = row.dataset.catId;
 
@@ -626,11 +768,23 @@ class FUActionMenu {
         entry.openSubGroup = null;
         this.render(entry);
       });
+
+      row.addEventListener("contextmenu", async (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        await this.toggleInspect(entry, `cat:${catId}`, {
+          type: "category",
+          catId,
+          label: row.dataset.catLabel,
+          faIcon: row.dataset.catIcon
+        });
+      });
     }
 
-    // Hover e clique nos subgrupos (Classes ou Tipos de Característica - Nível 2)
+    // Subgrupos (Classes ou Tipos de Característica - Nível 2)
     for (const row of root.querySelectorAll(".fu-am-group-row")) {
       const groupId = row.dataset.groupId;
+      const itemId = row.dataset.itemId;
 
       row.addEventListener("mouseenter", () => {
         if (entry.openSubGroup !== groupId) {
@@ -644,6 +798,17 @@ class FUActionMenu {
         entry.openSubGroup = entry.openSubGroup === groupId ? null : groupId;
         this.render(entry);
       });
+
+      if (itemId) {
+        row.addEventListener("contextmenu", async (ev) => {
+          ev.preventDefault();
+          ev.stopPropagation();
+          await this.toggleInspect(entry, `item:${itemId}`, {
+            type: "item",
+            itemId
+          });
+        });
+      }
     }
 
     // Botões de alternância rápida (Jardim / Magissemente)
@@ -660,7 +825,7 @@ class FUActionMenu {
       });
     }
 
-    // Clique final para executar Ataque, Feitiço, Ação, Habilidade ou Item
+    // Itens finais e ações de combate (Esquerdo = Executa | Direito = Descrição)
     for (const leaf of root.querySelectorAll(".fu-am-leaf")) {
       leaf.addEventListener("click", async (ev) => {
         ev.stopPropagation();
@@ -680,16 +845,32 @@ class FUActionMenu {
           });
         }
 
-        // Fecha o menu após disparar a ação
         entry.isPointerInsideMenu = false;
         this.hide(entry.token.id, true);
+      });
+
+      leaf.addEventListener("contextmenu", async (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        const kind = leaf.dataset.fuKind;
+
+        if (kind === "item") {
+          const itemId = leaf.dataset.itemId;
+          await this.toggleInspect(entry, `item:${itemId}`, {
+            type: "item",
+            itemId
+          });
+        } else if (kind === "sheetAction") {
+          const actionType = leaf.dataset.actionType;
+          await this.toggleInspect(entry, `action:${actionType}`, {
+            type: "sheetAction",
+            actionType
+          });
+        }
       });
     }
   }
 
-  /**
-   * Executa ações nativas da FUStandardActorSheet (Guarda, Impedir, Estudo, Equipamento, etc.)
-   */
   static async invokeSheetAction(actor, dataset) {
     const sheet = actor.sheet;
     const actionsMap = sheet?.constructor?.DEFAULT_OPTIONS?.actions ?? {};
@@ -733,16 +914,28 @@ class FUActionMenu {
 
     entry.element.style.left = `${left}px`;
     entry.element.style.top = `${top}px`;
-    this.adjustHorizontalFlip(entry);
+    this.adjustViewportBounds(entry);
   }
 
-  static adjustHorizontalFlip(entry) {
+  static adjustViewportBounds(entry) {
     if (!entry?.element) return;
     const rect = entry.element.getBoundingClientRect();
+
+    // Inverte para a esquerda se encostar na borda direita da tela
     if (rect.right > window.innerWidth - 12) {
       entry.element.classList.add("fu-am-flip-left");
     } else {
       entry.element.classList.remove("fu-am-flip-left");
+    }
+
+    // Se o token estiver muito perto do topo, abre o balão de descrição abaixo do menu
+    const balloon = entry.element.querySelector(".fu-am-balloon");
+    if (balloon) {
+      if (rect.top < 175) {
+        entry.element.classList.add("fu-am-balloon-below");
+      } else {
+        entry.element.classList.remove("fu-am-balloon-below");
+      }
     }
   }
 
