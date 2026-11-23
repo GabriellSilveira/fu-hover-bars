@@ -1,5 +1,4 @@
 class FUHoverBars {
-  // Armazena os HUDs ativos indexados pelo ID do token
   static activeHuds = new Map();
 
   static hasValidResources(token) {
@@ -8,9 +7,21 @@ class FUHoverBars {
     return Boolean(res && res.hp !== undefined);
   }
 
-  /**
-   * Verifica se é o turno ativo deste token e se o usuário atual é dono dele
-   */
+  static getActiveCombatant(combat) {
+    if (!combat?.started) return null;
+
+    const fuCombatantId =
+      combat.flags?.projectfu?.CombatantId ??
+      (typeof combat.getFlag === "function" ? combat.getFlag("projectfu", "CombatantId") : null);
+
+    if (fuCombatantId) {
+      const flagged = combat.combatants?.get(fuCombatantId);
+      if (flagged) return flagged;
+    }
+
+    return combat.combatant ?? null;
+  }
+
   static isTokenActiveTurnForOwner(token) {
     if (!token?.visible || !token.actor) return false;
 
@@ -18,13 +29,16 @@ class FUHoverBars {
     if (!isOwner) return false;
 
     const combat = game.combat;
-    if (!combat?.started || !combat.combatant) return false;
+    const active = this.getActiveCombatant(combat);
+    if (!active) return false;
 
-    const active = combat.combatant;
-    const matchesToken = active.token?.id && active.token.id === token.id;
-    const matchesActor = !active.token?.id && active.actor?.id && active.actor.id === token.actor.id;
+    const activeTokenId = active.tokenId || active.token?.id;
+    const activeActorId = active.actorId || active.actor?.id;
 
-    return Boolean(matchesToken || matchesActor);
+    const matchesToken = Boolean(activeTokenId && activeTokenId === token.id);
+    const matchesActor = Boolean(!activeTokenId && activeActorId && activeActorId === token.actor.id);
+
+    return matchesToken || matchesActor;
   }
 
   static clearTimers(entry) {
@@ -75,7 +89,6 @@ class FUHoverBars {
     const entry = this.activeHuds.get(tokenId);
     if (!entry) return;
 
-    // Se for o turno ativo do personagem dono, nunca oculta automaticamente
     if (!immediate && this.isTokenActiveTurnForOwner(entry.token)) {
       this.clearTimers(entry);
       entry.element.classList.remove("fu-hover-hidden");
@@ -90,7 +103,6 @@ class FUHoverBars {
       return;
     }
 
-    // Mantém os status visíveis por 3 segundos antes do fade-out para outros tokens
     entry.hideTimeout = setTimeout(() => {
       if (this.isTokenActiveTurnForOwner(entry.token)) return;
 
@@ -111,20 +123,15 @@ class FUHoverBars {
     }
   }
 
-  /**
-   * Sincroniza as barras fixas quando o turno ou o combate muda
-   */
   static syncTurnBars() {
     if (!canvas?.tokens) return;
 
-    // Inicia fade-out nos HUDs de tokens cujo turno acabou de encerrar
     for (const [tokenId, entry] of this.activeHuds.entries()) {
       if (!this.isTokenActiveTurnForOwner(entry.token) && !entry.token.hover && !entry.hideTimeout) {
         this.hide(tokenId, false);
       }
     }
 
-    // Garante que o token do turno atual esteja sempre com as barras visíveis
     for (const token of canvas.tokens.placeables) {
       if (this.isTokenActiveTurnForOwner(token)) {
         this.show(token);
@@ -147,7 +154,6 @@ class FUHoverBars {
     const mpPct = Math.min(100, Math.max(0, (mpVal / mpMax) * 100));
     const ipPct = Math.min(100, Math.max(0, (ipVal / ipMax) * 100));
 
-    // Crise (<= 50%) e Tremor Crítico (<= 30% para PV e PM)
     const isCrisis = hpVal <= Math.floor(hpMax / 2);
     const isHpCritical = hpPct <= 30;
     const isMpCritical = mpPct <= 30;
