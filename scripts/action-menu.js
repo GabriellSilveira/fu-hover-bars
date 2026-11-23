@@ -802,7 +802,6 @@ class FUActionMenu {
   static bindEvents(entry) {
     const root = entry.element;
 
-    // Botão fechar ou clique direito no próprio balão também fecha a descrição
     const balloon = root.querySelector(".fu-am-balloon");
     if (balloon) {
       balloon.addEventListener("contextmenu", (ev) => {
@@ -820,7 +819,6 @@ class FUActionMenu {
       }
     }
 
-    // Entrar em uma coluna DIFERENTE da coluna pinada fecha o balão; mover para cima/baixo na MESMA coluna mantém pinado
     for (const col of root.querySelectorAll("[data-col-level]")) {
       const colLevel = Number(col.dataset.colLevel);
       col.addEventListener("mouseenter", () => {
@@ -830,7 +828,6 @@ class FUActionMenu {
       });
     }
 
-    // Categorias principais (Nível 1)
     for (const row of root.querySelectorAll(".fu-am-cat-row")) {
       const catId = row.dataset.catId;
       const rowKey = row.dataset.inspectKey;
@@ -871,7 +868,6 @@ class FUActionMenu {
       });
     }
 
-    // Subgrupos (Classes ou Tipos de Característica - Nível 2)
     for (const row of root.querySelectorAll(".fu-am-group-row")) {
       const groupId = row.dataset.groupId;
       const itemId = row.dataset.itemId;
@@ -911,7 +907,6 @@ class FUActionMenu {
       }
     }
 
-    // Botões de alternância rápida (Jardim / Magissemente)
     for (const toggleBtn of root.querySelectorAll("[data-fu-toggle]")) {
       toggleBtn.addEventListener("click", async (ev) => {
         ev.stopPropagation();
@@ -925,7 +920,6 @@ class FUActionMenu {
       });
     }
 
-    // Itens finais e ações de combate (Esquerdo = Executa | Direito = Pina/Despina Descrição)
     for (const leaf of root.querySelectorAll(".fu-am-leaf")) {
       const rowKey = leaf.dataset.inspectKey;
 
@@ -1015,18 +1009,46 @@ class FUActionMenu {
   static updatePosition(entry) {
     if (!entry?.token || entry.token.destroyed || !canvas?.stage) return;
 
-    const topRightWorld = {
-      x: entry.token.x + entry.token.w,
+    const topLeftScreen = canvas.stage.worldTransform.apply({
+      x: entry.token.x,
       y: entry.token.y
-    };
-    const screenPos = canvas.stage.worldTransform.apply(topRightWorld);
+    });
+    const bottomRightScreen = canvas.stage.worldTransform.apply({
+      x: entry.token.x + entry.token.w,
+      y: entry.token.y + entry.token.h
+    });
 
-    const left = Math.max(12, screenPos.x + 10);
+    const hudEntry = window.FUHoverBars?.activeHuds?.get(entry.token.id);
+    const hudRect = hudEntry?.element ? hudEntry.element.getBoundingClientRect() : null;
+    const hasHud = Boolean(hudRect && hudRect.width > 0);
+
+    const leftBoundary = hasHud ? Math.min(topLeftScreen.x, hudRect.left) : topLeftScreen.x;
+    const rightBoundary = hasHud ? Math.max(bottomRightScreen.x, hudRect.right) : bottomRightScreen.x;
+
+    const baseWidth = 220;
+    const placeOnLeft =
+      rightBoundary + 8 + baseWidth > window.innerWidth - 12 &&
+      leftBoundary - 8 - baseWidth >= 12;
+
+    if (placeOnLeft) {
+      entry.element.classList.add("fu-am-flip-left");
+      const actualWidth = entry.element.offsetWidth || baseWidth;
+      const left = Math.max(12, leftBoundary - 8 - actualWidth);
+      const bridgeWidth = Math.max(16, topLeftScreen.x - (left + actualWidth) + 6);
+      entry.element.style.setProperty("--fu-am-bridge", `${bridgeWidth}px`);
+      entry.element.style.left = `${left}px`;
+    } else {
+      entry.element.classList.remove("fu-am-flip-left");
+      const left = Math.max(12, rightBoundary + 8);
+      const bridgeWidth = Math.max(16, left - bottomRightScreen.x + 6);
+      entry.element.style.setProperty("--fu-am-bridge", `${bridgeWidth}px`);
+      entry.element.style.left = `${left}px`;
+    }
+
     const maxTop = Math.max(16, window.innerHeight - 360);
-    const top = Math.min(Math.max(16, screenPos.y - 6), maxTop);
-
-    entry.element.style.left = `${left}px`;
+    const top = Math.min(Math.max(16, topLeftScreen.y - 6), maxTop);
     entry.element.style.top = `${top}px`;
+
     this.adjustViewportBounds(entry);
   }
 
@@ -1063,12 +1085,6 @@ class FUActionMenu {
     if (!entry?.element) return;
     const rect = entry.element.getBoundingClientRect();
 
-    if (rect.right > window.innerWidth - 12) {
-      entry.element.classList.add("fu-am-flip-left");
-    } else {
-      entry.element.classList.remove("fu-am-flip-left");
-    }
-
     const balloon = entry.element.querySelector(".fu-am-balloon");
     if (balloon) {
       if (rect.top < 175) {
@@ -1086,6 +1102,8 @@ class FUActionMenu {
     }
   }
 }
+
+window.FUActionMenu = FUActionMenu;
 
 Hooks.once("init", () => {
   FUActionMenu.registerSettings();
