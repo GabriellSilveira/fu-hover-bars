@@ -1,0 +1,28 @@
+{
+  "id": "fu-hover-bars",
+  "title": "Fabula Ultima - Hover Resource Bars",
+  "description": "Exibe as barras de PV, PM e PI no estilo JRPG abaixo do token ao passar o mouse.",
+  "version": "1.0.0",
+  "compatibility": {
+    "minimum": "11",
+    "verified": "13"
+  },
+  "relationships": {
+    "systems": [
+      {
+        "id": "projectfu",
+        "type": "system",
+        "compatibility": {}
+      }
+    ]
+  },
+  "esmodules": [
+    "scripts/hover-bars.js"
+  ],
+  "styles": [
+    "styles/hover-bars.css"
+  ],
+  "url": "https://github.com/SEU-USUARIO/fu-hover-bars",
+  "manifest": "https://raw.githubusercontent.com/SEU-USUARIO/fu-hover-bars/main/module.json",
+  "download": "https://github.com/SEU-USUARIO/fu-hover-bars/archive/refs/heads/main.zip"
+}
