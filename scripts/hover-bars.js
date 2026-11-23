@@ -8,6 +8,25 @@ class FUHoverBars {
     return Boolean(res && res.hp !== undefined);
   }
 
+  /**
+   * Verifica se é o turno ativo deste token e se o usuário atual é dono dele
+   */
+  static isTokenActiveTurnForOwner(token) {
+    if (!token?.visible || !token.actor) return false;
+
+    const isOwner = Boolean(token.actor.isOwner || token.document?.isOwner);
+    if (!isOwner) return false;
+
+    const combat = game.combat;
+    if (!combat?.started || !combat.combatant) return false;
+
+    const active = combat.combatant;
+    const matchesToken = active.token?.id && active.token.id === token.id;
+    const matchesActor = !active.token?.id && active.actor?.id && active.actor.id === token.actor.id;
+
+    return Boolean(matchesToken || matchesActor);
+  }
+
   static clearTimers(entry) {
     if (entry.hideTimeout) {
       clearTimeout(entry.hideTimeout);
@@ -25,7 +44,6 @@ class FUHoverBars {
     let entry = this.activeHuds.get(token.id);
 
     if (entry) {
-      // Se o HUD desse token ainda está na tela (ou dando fade), cancela o sumiço e renova
       this.clearTimers(entry);
       this.render(entry);
       this.updatePosition(entry);
@@ -33,7 +51,6 @@ class FUHoverBars {
       return;
     }
 
-    // Cria um novo HUD independente para este token
     const el = document.createElement("div");
     el.classList.add("fu-hover-hud", "fu-hover-hidden");
     document.body.appendChild(el);
@@ -49,7 +66,6 @@ class FUHoverBars {
     this.render(entry);
     this.updatePosition(entry);
 
-    // Ativa o fade-in no próximo frame
     requestAnimationFrame(() => {
       el.classList.remove("fu-hover-hidden");
     });
@@ -59,6 +75,13 @@ class FUHoverBars {
     const entry = this.activeHuds.get(tokenId);
     if (!entry) return;
 
+    // Se for o turno ativo do personagem dono, nunca oculta automaticamente
+    if (!immediate && this.isTokenActiveTurnForOwner(entry.token)) {
+      this.clearTimers(entry);
+      entry.element.classList.remove("fu-hover-hidden");
+      return;
+    }
+
     this.clearTimers(entry);
 
     if (immediate) {
@@ -67,13 +90,15 @@ class FUHoverBars {
       return;
     }
 
-    // Mantém os status visíveis por 3 segundos antes do fade-out
+    // Mantém os status visíveis por 3 segundos antes do fade-out para outros tokens
     entry.hideTimeout = setTimeout(() => {
+      if (this.isTokenActiveTurnForOwner(entry.token)) return;
+
       entry.element.classList.add("fu-hover-hidden");
       entry.hideTimeout = null;
 
-      // Remove o elemento do HTML após o término da transição CSS (450ms)
       entry.cleanupTimeout = setTimeout(() => {
+        if (this.isTokenActiveTurnForOwner(entry.token)) return;
         entry.element.remove();
         this.activeHuds.delete(tokenId);
       }, 500);
@@ -83,6 +108,27 @@ class FUHoverBars {
   static clearAll() {
     for (const [tokenId] of this.activeHuds) {
       this.hide(tokenId, true);
+    }
+  }
+
+  /**
+   * Sincroniza as barras fixas quando o turno ou o combate muda
+   */
+  static syncTurnBars() {
+    if (!canvas?.tokens) return;
+
+    // Inicia fade-out nos HUDs de tokens cujo turno acabou de encerrar
+    for (const [tokenId, entry] of this.activeHuds.entries()) {
+      if (!this.isTokenActiveTurnForOwner(entry.token) && !entry.token.hover && !entry.hideTimeout) {
+        this.hide(tokenId, false);
+      }
+    }
+
+    // Garante que o token do turno atual esteja sempre com as barras visíveis
+    for (const token of canvas.tokens.placeables) {
+      if (this.isTokenActiveTurnForOwner(token)) {
+        this.show(token);
+      }
     }
   }
 
@@ -101,19 +147,20 @@ class FUHoverBars {
     const mpPct = Math.min(100, Math.max(0, (mpVal / mpMax) * 100));
     const ipPct = Math.min(100, Math.max(0, (ipVal / ipMax) * 100));
 
-    // Crise (<= 50%) e Perigo Crítico (< 20%)
+    // Crise (<= 50%) e Tremor Crítico (<= 30% para PV e PM)
     const isCrisis = hpVal <= Math.floor(hpMax / 2);
-    const isCritical = hpPct < 20;
+    const isHpCritical = hpPct <= 30;
+    const isMpCritical = mpPct <= 30;
 
     entry.element.innerHTML = `
-      <div class="fu-bar-row ${isCritical ? "fu-critical-shake" : ""}">
+      <div class="fu-bar-row ${isHpCritical ? "fu-hp-critical-shake" : ""}">
         <span class="fu-bar-label">PV</span>
         <div class="fu-bar-track">
           <div class="fu-bar-fill ${isCrisis ? "fu-crisis" : "fu-hp"}" style="width: ${hpPct}%;"></div>
         </div>
         <span class="fu-bar-value">${hpVal}</span>
       </div>
-      <div class="fu-bar-row">
+      <div class="fu-bar-row ${isMpCritical ? "fu-mp-critical-shake" : ""}">
         <span class="fu-bar-label">PM</span>
         <div class="fu-bar-track">
           <div class="fu-bar-fill fu-mp" style="width: ${mpPct}%;"></div>
@@ -150,6 +197,9 @@ class FUHoverBars {
   }
 }
 
+Hooks.once("ready", () => FUHoverBars.syncTurnBars());
+Hooks.on("canvasReady", () => FUHoverBars.syncTurnBars());
+
 Hooks.on("hoverToken", (token, hovered) => {
   if (hovered) FUHoverBars.show(token);
   else FUHoverBars.hide(token.id);
@@ -169,6 +219,12 @@ Hooks.on("updateActor", (actor) => {
     }
   }
 });
+
+Hooks.on("updateCombat", () => FUHoverBars.syncTurnBars());
+Hooks.on("updateCombatant", () => FUHoverBars.syncTurnBars());
+Hooks.on("createCombatant", () => FUHoverBars.syncTurnBars());
+Hooks.on("deleteCombatant", () => FUHoverBars.syncTurnBars());
+Hooks.on("deleteCombat", () => FUHoverBars.syncTurnBars());
 
 Hooks.on("deleteToken", (tokenDoc) => {
   FUHoverBars.hide(tokenDoc.id, true);
