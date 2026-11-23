@@ -62,6 +62,7 @@ class FUHoverBars {
       this.render(entry);
       this.updatePosition(entry);
       entry.element.classList.remove("fu-hover-hidden");
+      window.FUActionMenu?.updateAllPositions?.();
       return;
     }
 
@@ -79,6 +80,7 @@ class FUHoverBars {
     this.activeHuds.set(token.id, entry);
     this.render(entry);
     this.updatePosition(entry);
+    window.FUActionMenu?.updateAllPositions?.();
 
     requestAnimationFrame(() => {
       el.classList.remove("fu-hover-hidden");
@@ -100,6 +102,7 @@ class FUHoverBars {
     if (immediate) {
       entry.element.remove();
       this.activeHuds.delete(tokenId);
+      window.FUActionMenu?.updateAllPositions?.();
       return;
     }
 
@@ -113,8 +116,9 @@ class FUHoverBars {
         if (this.isTokenActiveTurnForOwner(entry.token)) return;
         entry.element.remove();
         this.activeHuds.delete(tokenId);
+        window.FUActionMenu?.updateAllPositions?.();
       }, 500);
-    }, 3000);
+    }, 1000);
   }
 
   static clearAll() {
@@ -181,6 +185,8 @@ class FUHoverBars {
         <span class="fu-bar-value">${ipVal}</span>
       </div>
     `;
+
+    window.FUActionMenu?.updateAllPositions?.();
   }
 
   static updatePosition(entry) {
@@ -192,8 +198,7 @@ class FUHoverBars {
     };
     const screenPos = canvas.stage.worldTransform.apply(bottomCenterWorld);
 
-    entry.element.style.left = `${screenPos.x}px`;
-    entry.element.style.top = `${screenPos.y + 8}px`;
+    entry.element.style.left = `${screenPos.x}px`; entry.element.style.top = `${screenPos.y + 8}px`;
   }
 
   static updateAllPositions() {
@@ -202,6 +207,8 @@ class FUHoverBars {
     }
   }
 }
+
+window.FUHoverBars = FUHoverBars;
 
 Hooks.once("ready", () => FUHoverBars.syncTurnBars());
 Hooks.on("canvasReady", () => FUHoverBars.syncTurnBars());
@@ -215,7 +222,10 @@ Hooks.on("canvasPan", () => FUHoverBars.updateAllPositions());
 
 Hooks.on("refreshToken", (token) => {
   const entry = FUHoverBars.activeHuds.get(token.id);
-  if (entry) FUHoverBars.updatePosition(entry);
+  if (entry) {
+    FUHoverBars.updatePosition(entry);
+    window.FUActionMenu?.updateAllPositions?.();
+  }
 });
 
 Hooks.on("updateActor", (actor) => {
