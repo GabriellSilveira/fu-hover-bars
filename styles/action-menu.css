@@ -10,15 +10,20 @@
   transition: opacity 0.2s ease-out, transform 0.2s ease-out, visibility 0s linear 0s;
 }
 
-/* Ponte invisível à esquerda para o mouse não perder o foco ao sair do token */
+/* Ponte invisível para o mouse não perder o foco ao sair do token */
 .fu-action-menu::before {
   content: "";
   position: absolute;
   top: 0;
-  left: -16px;
-  width: 16px;
+  left: calc(-1 * var(--fu-am-bridge, 16px));
+  width: var(--fu-am-bridge, 16px);
   height: 100%;
   background: transparent;
+}
+
+.fu-action-menu.fu-am-flip-left::before {
+  left: auto;
+  right: calc(-1 * var(--fu-am-bridge, 16px));
 }
 
 .fu-action-menu.fu-am-hidden {
