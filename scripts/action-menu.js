@@ -724,4 +724,397 @@ class FUActionMenu {
       .join("");
 
     let level2HTML = "";
-    let level
+    let level3HTML = "";
+
+    if (activeCat) {
+      if (activeCat.items) {
+        const rows = activeCat.items.map((item) => this.renderLeafItemHTML(item, entry.inspectedKey, 2)).join("");
+        level2HTML = `
+          <div class="fu-am-panel fu-am-subpanel fu-am-level2" data-col-level="2">
+            <div class="fu-am-panel-title">${activeCat.label}</div>
+            <div class="fu-am-list">${rows}</div>
+          </div>
+        `;
+      } else if (activeCat.groups) {
+        const activeGroup = activeCat.groups.find((g) => g.id === entry.openSubGroup) ?? null;
+        if (!activeGroup) entry.openSubGroup = null;
+
+        const groupRows = activeCat.groups
+          .map((grp) => {
+            const key = grp.itemId ? `item:${grp.itemId}` : `group:${grp.id}`;
+            const isGrpOpen = entry.openSubGroup === grp.id;
+            const isInspected = entry.inspectedKey === key ? "is-inspected" : "";
+            const grpIcon = grp.img
+              ? `<img class="fu-am-icon" src="${grp.img}" alt="" />`
+              : `<i class="fu-am-fa-icon ${grp.faIcon || "fas fa-folder"}"></i>`;
+
+            return `
+              <div class="fu-am-row fu-am-group-row ${isGrpOpen ? "is-active" : ""} ${isInspected}" data-inspect-key="${key}" data-group-id="${grp.id}" data-item-id="${grp.itemId || ""}" data-level="2">
+                <span class="fu-am-cursor">☛</span>
+                ${grpIcon}
+                <span class="fu-am-label">${grp.name}</span>
+                <span class="fu-am-arrow">▸</span>
+              </div>
+            `;
+          })
+          .join("");
+
+        level2HTML = `
+          <div class="fu-am-panel fu-am-subpanel fu-am-level2" data-col-level="2">
+            <div class="fu-am-panel-title">${activeCat.label}</div>
+            <div class="fu-am-list">${groupRows}</div>
+          </div>
+        `;
+
+        if (activeGroup) {
+          const leafRows = activeGroup.items.map((item) => this.renderLeafItemHTML(item, entry.inspectedKey, 3)).join("");
+          level3HTML = `
+            <div class="fu-am-panel fu-am-subpanel fu-am-level3" data-col-level="3">
+              <div class="fu-am-panel-title">${activeGroup.name}</div>
+              <div class="fu-am-list">${leafRows}</div>
+            </div>
+          `;
+        }
+      }
+    }
+
+    entry.element.innerHTML = `
+      ${this.renderBalloonHTML(entry)}
+      <div class="fu-am-columns">
+        <div class="fu-am-panel fu-am-main" data-col-level="1">
+          <div class="fu-am-header">
+            <span class="fu-am-diamond">◈</span>
+            <span class="fu-am-actor-name">${actor.name}</span>
+          </div>
+          <div class="fu-am-list">
+            ${mainRowsHTML}
+          </div>
+        </div>
+        ${level2HTML}
+        ${level3HTML}
+      </div>
+    `;
+
+    this.bindEvents(entry);
+    this.adjustViewportBounds(entry);
+  }
+
+  static bindEvents(entry) {
+    const root = entry.element;
+
+    // Botão fechar ou clique direito no próprio balão também fecha a descrição
+    const balloon = root.querySelector(".fu-am-balloon");
+    if (balloon) {
+      balloon.addEventListener("contextmenu", (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        this.dismissBalloon(entry);
+      });
+
+      const closeBtn = balloon.querySelector(".fu-am-balloon-close");
+      if (closeBtn) {
+        closeBtn.addEventListener("click", (ev) => {
+          ev.stopPropagation();
+          this.dismissBalloon(entry);
+        });
+      }
+    }
+
+    // Entrar em uma coluna DIFERENTE da coluna pinada fecha o balão; mover para cima/baixo na MESMA coluna mantém pinado
+    for (const col of root.querySelectorAll("[data-col-level]")) {
+      const colLevel = Number(col.dataset.colLevel);
+      col.addEventListener("mouseenter", () => {
+        if (entry.inspectedLevel !== null && entry.inspectedLevel !== colLevel) {
+          this.dismissBalloon(entry);
+        }
+      });
+    }
+
+    // Categorias principais (Nível 1)
+    for (const row of root.querySelectorAll(".fu-am-cat-row")) {
+      const catId = row.dataset.catId;
+      const rowKey = row.dataset.inspectKey;
+
+      row.addEventListener("mouseenter", () => {
+        if (entry.openCategory !== catId) {
+          if (entry.inspectedLevel !== null && entry.inspectedLevel !== 1) {
+            this.clearBalloonState(entry);
+          }
+          entry.openCategory = catId;
+          entry.openSubGroup = null;
+          this.render(entry);
+        }
+      });
+
+      row.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        this.clearBalloonState(entry);
+        entry.openCategory = entry.openCategory === catId ? null : catId;
+        entry.openSubGroup = null;
+        this.render(entry);
+      });
+
+      row.addEventListener("contextmenu", async (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        await this.toggleInspect(
+          entry,
+          rowKey,
+          {
+            type: "category",
+            catId,
+            label: row.dataset.catLabel,
+            faIcon: row.dataset.catIcon
+          },
+          1
+        );
+      });
+    }
+
+    // Subgrupos (Classes ou Tipos de Característica - Nível 2)
+    for (const row of root.querySelectorAll(".fu-am-group-row")) {
+      const groupId = row.dataset.groupId;
+      const itemId = row.dataset.itemId;
+      const rowKey = row.dataset.inspectKey;
+
+      row.addEventListener("mouseenter", () => {
+        if (entry.openSubGroup !== groupId) {
+          if (entry.inspectedLevel !== null && entry.inspectedLevel !== 2) {
+            this.clearBalloonState(entry);
+          }
+          entry.openSubGroup = groupId;
+          this.render(entry);
+        }
+      });
+
+      row.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        this.clearBalloonState(entry);
+        entry.openSubGroup = entry.openSubGroup === groupId ? null : groupId;
+        this.render(entry);
+      });
+
+      if (itemId) {
+        row.addEventListener("contextmenu", async (ev) => {
+          ev.preventDefault();
+          ev.stopPropagation();
+          await this.toggleInspect(
+            entry,
+            rowKey,
+            {
+              type: "item",
+              itemId
+            },
+            2
+          );
+        });
+      }
+    }
+
+    // Botões de alternância rápida (Jardim / Magissemente)
+    for (const toggleBtn of root.querySelectorAll("[data-fu-toggle]")) {
+      toggleBtn.addEventListener("click", async (ev) => {
+        ev.stopPropagation();
+        const actionName = toggleBtn.dataset.fuToggle;
+        const itemId = toggleBtn.dataset.itemId;
+        await this.invokeSheetAction(entry.token.actor, {
+          action: actionName,
+          itemId
+        });
+        setTimeout(() => this.render(entry), 120);
+      });
+    }
+
+    // Itens finais e ações de combate (Esquerdo = Executa | Direito = Pina/Despina Descrição)
+    for (const leaf of root.querySelectorAll(".fu-am-leaf")) {
+      const rowKey = leaf.dataset.inspectKey;
+
+      leaf.addEventListener("click", async (ev) => {
+        ev.stopPropagation();
+        const kind = leaf.dataset.fuKind;
+        const actor = entry.token.actor;
+
+        if (kind === "item") {
+          const item = actor.items.get(leaf.dataset.itemId);
+          if (item && typeof item.roll === "function") {
+            await item.roll();
+          }
+        } else if (kind === "sheetAction") {
+          await this.invokeSheetAction(actor, {
+            action: leaf.dataset.actionName,
+            type: leaf.dataset.actionType,
+            rollType: "action-type"
+          });
+        }
+
+        entry.isPointerInsideMenu = false;
+        this.hide(entry.token.id, true);
+      });
+
+      leaf.addEventListener("contextmenu", async (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        const kind = leaf.dataset.fuKind;
+        const level = Number(leaf.dataset.level || 2);
+
+        if (kind === "item") {
+          const itemId = leaf.dataset.itemId;
+          await this.toggleInspect(
+            entry,
+            rowKey,
+            {
+              type: "item",
+              itemId
+            },
+            level
+          );
+        } else if (kind === "sheetAction") {
+          const actionType = leaf.dataset.actionType;
+          await this.toggleInspect(
+            entry,
+            rowKey,
+            {
+              type: "sheetAction",
+              actionType
+            },
+            level
+          );
+        }
+      });
+    }
+  }
+
+  static async invokeSheetAction(actor, dataset) {
+    const sheet = actor.sheet;
+    const actionsMap = sheet?.constructor?.DEFAULT_OPTIONS?.actions ?? {};
+    const handler = actionsMap[dataset.action];
+
+    const fakeBtn = document.createElement("button");
+    for (const [k, v] of Object.entries(dataset)) {
+      if (v !== undefined && v !== null) fakeBtn.dataset[k] = v;
+    }
+
+    const fakeEvent = new MouseEvent("click", { bubbles: true, cancelable: true });
+    Object.defineProperty(fakeEvent, "target", { value: fakeBtn });
+    Object.defineProperty(fakeEvent, "currentTarget", { value: fakeBtn });
+
+    if (typeof handler === "function") {
+      try {
+        await handler.call(sheet, fakeEvent, fakeBtn);
+        return;
+      } catch (err) {
+        console.warn("[fu-hover-bars] Fallback ao acionar ação da ficha:", err);
+      }
+    }
+
+    if (dataset.type === "inventory") {
+      await actor.sheet.render(true);
+    }
+  }
+
+  static updatePosition(entry) {
+    if (!entry?.token || entry.token.destroyed || !canvas?.stage) return;
+
+    const topRightWorld = {
+      x: entry.token.x + entry.token.w,
+      y: entry.token.y
+    };
+    const screenPos = canvas.stage.worldTransform.apply(topRightWorld);
+
+    const left = Math.max(12, screenPos.x + 10);
+    const maxTop = Math.max(16, window.innerHeight - 360);
+    const top = Math.min(Math.max(16, screenPos.y - 6), maxTop);
+
+    entry.element.style.left = `${left}px`;
+    entry.element.style.top = `${top}px`;
+    this.adjustViewportBounds(entry);
+  }
+
+  static positionBalloon(entry) {
+    const balloon = entry?.element?.querySelector(".fu-am-balloon");
+    if (!balloon) return;
+
+    const menuRect = entry.element.getBoundingClientRect();
+    let targetCol = entry.element.querySelector(`[data-col-level="${entry.inspectedLevel}"]`);
+    if (!targetCol) {
+      targetCol = entry.element.querySelector('[data-col-level="1"]');
+    }
+    if (!targetCol) return;
+
+    const colRect = targetCol.getBoundingClientRect();
+    const balloonRect = balloon.getBoundingClientRect();
+    const balloonWidth = balloonRect.width || 330;
+
+    const colCenterRelX = colRect.left - menuRect.left + colRect.width / 2;
+    let desiredLeft = colCenterRelX - balloonWidth / 2;
+
+    const minScreenLeft = 12;
+    const maxScreenLeft = window.innerWidth - balloonWidth - 12;
+    const clampedScreenLeft = Math.min(Math.max(menuRect.left + desiredLeft, minScreenLeft), maxScreenLeft);
+    desiredLeft = clampedScreenLeft - menuRect.left;
+
+    balloon.style.left = `${desiredLeft}px`;
+
+    const arrowOffset = Math.min(Math.max(colCenterRelX - desiredLeft, 18), balloonWidth - 18);
+    balloon.style.setProperty("--balloon-arrow-x", `${arrowOffset}px`);
+  }
+
+  static adjustViewportBounds(entry) {
+    if (!entry?.element) return;
+    const rect = entry.element.getBoundingClientRect();
+
+    if (rect.right > window.innerWidth - 12) {
+      entry.element.classList.add("fu-am-flip-left");
+    } else {
+      entry.element.classList.remove("fu-am-flip-left");
+    }
+
+    const balloon = entry.element.querySelector(".fu-am-balloon");
+    if (balloon) {
+      if (rect.top < 175) {
+        entry.element.classList.add("fu-am-balloon-below");
+      } else {
+        entry.element.classList.remove("fu-am-balloon-below");
+      }
+      this.positionBalloon(entry);
+    }
+  }
+
+  static updateAllPositions() {
+    for (const entry of this.activeMenus.values()) {
+      this.updatePosition(entry);
+    }
+  }
+}
+
+Hooks.once("init", () => {
+  FUActionMenu.registerSettings();
+});
+
+Hooks.on("hoverToken", (token, hovered) => {
+  if (hovered) FUActionMenu.show(token);
+  else FUActionMenu.hide(token.id, false);
+});
+
+Hooks.on("canvasPan", () => FUActionMenu.updateAllPositions());
+
+Hooks.on("refreshToken", (token) => {
+  const entry = FUActionMenu.activeMenus.get(token.id);
+  if (entry) FUActionMenu.updatePosition(entry);
+});
+
+Hooks.on("updateCombat", () => {
+  FUActionMenu.clearAll();
+});
+
+Hooks.on("deleteCombat", () => {
+  FUActionMenu.clearAll();
+});
+
+Hooks.on("deleteToken", (tokenDoc) => {
+  FUActionMenu.hide(tokenDoc.id, true);
+});
+
+Hooks.on("canvasTearDown", () => {
+  FUActionMenu.clearAll();
+});
