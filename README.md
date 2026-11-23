@@ -22,4 +22,4 @@ Designed to keep the battlemap clean and immersive without sacrificing quick vis
 2. Click **Install Module** at the bottom of the window.
 3. Paste the following URL into the **Manifest URL** field:
    ```text
-   https://raw.githubusercontent.com/YOUR-USERNAME/fu-hover-bars/main/module.json
+   https://raw.githubusercontent.com/GabriellSilveira/fu-hover-bars/main/module.json
